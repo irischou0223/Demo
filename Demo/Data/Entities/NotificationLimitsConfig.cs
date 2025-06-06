@@ -19,6 +19,11 @@ namespace Demo.Data.Entities
         public int NotificationType { get; set; }
 
         [Required]
+        [Column("max_recipients_per_request", TypeName = "integer")]
+        [Comment("最大收件人數量")]
+        public int MaxRecipientsPerRequest { get; set; }
+
+        [Required]
         [Column("max_attempts", TypeName = "integer")]
         [Comment("最大重試次數")]
         public int MaxAttempts { get; set; } = 3;
