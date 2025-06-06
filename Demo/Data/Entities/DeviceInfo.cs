@@ -30,9 +30,9 @@ namespace Demo.Data.Entities
         public string AppVersion { get; set; } = null!;
 
         [Required, StringLength(255)]
-        [Column("token", TypeName = "varchar")]
+        [Column("fcm_token", TypeName = "varchar")]
         [Comment("FCM Registration Token")]
-        public string Token { get; set; } = null!;
+        public string FcmToken { get; set; } = null!;
 
         [Required, StringLength(100)]
         [Column("notification_group", TypeName = "varchar")]
@@ -53,6 +53,11 @@ namespace Demo.Data.Entities
         [Column("email", TypeName = "varchar")]
         [Comment("電子郵件")]
         public string Email { get; set; } = null!;
+
+        [Required, StringLength(20)]
+        [Column("line_id", TypeName = "varchar")]
+        [Comment("Line ID")]
+        public string LineId { get; set; } = null!;
 
         [StringLength(100)]
         [Column("msgarm", TypeName = "varchar")]
@@ -76,7 +81,7 @@ namespace Demo.Data.Entities
 
         [Required]
         [Column("status", TypeName = "boolean")]
-        [Comment("裝置狀態 啟用 0；停用 1")]
+        [Comment("裝置狀態")]
         public bool Status { get; set; } = true;
 
         [Required, StringLength(10)]
