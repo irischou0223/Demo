@@ -3,9 +3,19 @@ using Demo.Data;
 using Demo.Infrastructure.Services;
 using Demo.Infrastructure.Services.Notification;
 using Microsoft.EntityFrameworkCore;
+using Serilog;
 using StackExchange.Redis;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// 用 Serilog 取代內建 logging provider，但 Controller/Service 只要繼續用ILogger<T>
+builder.Host.UseSerilog((context, services, configuration) =>
+{
+    configuration
+        .ReadFrom.Configuration(context.Configuration)
+        .ReadFrom.Services(services)
+        .Enrich.FromLogContext();
+});
 
 // 設定通知服務的資料庫連線
 // 使用 PostgreSQL 作為資料庫提供者
@@ -20,6 +30,7 @@ builder.Services.AddSingleton<IConnectionMultiplexer>(ConnectionMultiplexer.Conn
 // DI 註冊推播策略與 Context
 builder.Services.AddSingleton<ConfigCacheService>();
 
+builder.Services.AddScoped<RegistrationService>();
 builder.Services.AddScoped<AppNotificationStrategy>();
 builder.Services.AddScoped<WebNotificationStrategy>();
 builder.Services.AddScoped<EmailNotificationStrategy>();

@@ -29,7 +29,7 @@ namespace Demo.Infrastructure.Services.Notification
             if (devices == null || devices.Count == 0) return;
 
             var productInfoId = devices.First().ProductInfoId;
-            var config = await _configCache.GetConfigAsync(productInfoId);
+            var config = await _configCache.GetNotificationConfigAsync(productInfoId);
             if (config == null)
             {
                 _logger.LogError("WebNotificationStrategy: 查無 NotificationActionConfig, ProductInfoId={ProductInfoId}", productInfoId);
