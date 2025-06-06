@@ -1,5 +1,6 @@
 ﻿using Demo.Data;
 using Demo.Data.Entities;
+using Demo.Enum;
 using Demo.Infrastructure.Services.Notification;
 using Demo.Models.DTOs;
 using Microsoft.EntityFrameworkCore;
@@ -13,17 +14,43 @@ namespace Demo.Infrastructure.Services
         private readonly WebNotificationStrategy _webStrategy;
         private readonly EmailNotificationStrategy _emailStrategy;
         private readonly LineNotificationStrategy _lineStrategy;
+        private readonly NotificationQueueService _queueService;
 
-        public NotificationService(DemoDbContext db, AppNotificationStrategy appStrategy, WebNotificationStrategy webStrategy, EmailNotificationStrategy emailStrategy, LineNotificationStrategy lineStrategy)
+        public NotificationService(DemoDbContext db, AppNotificationStrategy appStrategy, WebNotificationStrategy webStrategy, EmailNotificationStrategy emailStrategy, LineNotificationStrategy lineStrategy, NotificationQueueService queueService)
         {
             _db = db;
             _appStrategy = appStrategy;
             _webStrategy = webStrategy;
             _emailStrategy = emailStrategy;
             _lineStrategy = lineStrategy;
+            _queueService = queueService;
         }
 
-        public async Task<NotificationResultResponse> NotifyByTargetAsync(NotificationRequestDto request)
+        /// <summary>
+        /// 推播主要入口，可選擇直接推播或進queue。
+        /// </summary>
+        public async Task<NotificationResultResponse> NotifyAsync(
+            NotificationRequestDto request,
+            NotificationSourceType source,
+            bool useQueue = false)
+        {
+            if (useQueue)
+            {
+                await _queueService.EnqueueAsync(request, source);
+                return new NotificationResultResponse { IsSuccess = true, Message = "已加入推播佇列" };
+            }
+            else
+            {
+                return await NotifyByTargetAsync(request, source);
+            }
+        }
+
+
+
+        /// <summary>
+        /// 依據條件查詢裝置，組合推播資料後推播（同步）
+        /// </summary>
+        public async Task<NotificationResultResponse> NotifyByTargetAsync(NotificationRequestDto request, NotificationSourceType source)
         {
             var result = new NotificationResultResponse();
 
@@ -94,23 +121,39 @@ namespace Demo.Infrastructure.Services
             var customData = customDataList.ToDictionary(d => d.Key, d => d.Value);
 
             // 6. 推播
-            return await NotifyByTargetAsyncInternal(
+            var innerResult = await NotifyByTargetAsyncInternal(
                 request,
                 devices,
                 codeInfo.Title ?? "",
                 codeInfo.Body ?? "",
                 template,
-                customData);
+                customData,
+                source);
+
+            // 7. Log寫入
+            foreach (var device in devices)
+            {
+                WriteNotificationLog(source, device, codeInfo.Title ?? "", codeInfo.Body ?? "", innerResult.IsSuccess, innerResult.Message);
+            }
+            await _db.SaveChangesAsync();
+
+            return innerResult;
         }
 
         /// <summary>
-        /// Overload：由外部指定內容與範本，直接推播，不重複查詢
+        /// 直接指定內容與範本推播（給排程等用）
         /// </summary>
-        public async Task<NotificationResultResponse> NotifyByTargetAsync(NotificationRequestDto request, string title, string body, NotificationMsgTemplate template, Dictionary<string, string> templateData)
+        public async Task<NotificationResultResponse> NotifyByTargetAsync(
+            NotificationRequestDto request,
+            string title,
+            string body,
+            NotificationMsgTemplate template,
+            Dictionary<string, string> templateData,
+            NotificationSourceType source)
         {
             var result = new NotificationResultResponse();
 
-            // 1. 查詢目標裝置
+            // 查詢目標裝置
             List<DeviceInfo> devices;
             if (request.DeviceIds != null && request.DeviceIds.Any())
             {
@@ -138,18 +181,49 @@ namespace Demo.Infrastructure.Services
                 return result;
             }
 
-            // 2. 推播
-            return await NotifyByTargetAsyncInternal(
+            var innerResult = await NotifyByTargetAsyncInternal(
                 request,
                 devices,
                 title,
                 body,
                 template,
-                templateData);
+                templateData,
+                source);
+
+            foreach (var device in devices)
+            {
+                WriteNotificationLog(source, device, title, body, innerResult.IsSuccess, innerResult.Message);
+            }
+            await _db.SaveChangesAsync();
+
+            return innerResult;
         }
 
         /// <summary>
-        /// 根據裝置分類推播並送出
+        /// 給RetryService用，根據失敗Log重發
+        /// </summary>
+        public async Task<bool> RetrySendNotificationAsync(ExternalNotificationLog log)
+        {
+            var device = await _db.DeviceInfos.FirstOrDefaultAsync(x => x.DeviceInfoId == log.DeviceInfoId && x.Status);
+            if (device == null) return false;
+
+            // 你可以依照實際需求查模板、CodeInfo等或直接用log的內容
+            try
+            {
+                var customData = new Dictionary<string, string>(); // 若有紀錄可帶入
+                                                                   // 這裡假設是 App 推播, 可依需求調整
+                await _appStrategy.SendAsync(new List<DeviceInfo> { device }, log.Title, log.Body, customData, null);
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        #region private methods
+        /// <summary>
+        /// 依推播方式分類推播，呼叫各策略
         /// </summary>
         private async Task<NotificationResultResponse> NotifyByTargetAsyncInternal(
             NotificationRequestDto request,
@@ -157,7 +231,8 @@ namespace Demo.Infrastructure.Services
             string title,
             string body,
             NotificationMsgTemplate template,
-            Dictionary<string, string> customData)
+            Dictionary<string, string> customData,
+            NotificationSourceType source)
         {
             var result = new NotificationResultResponse();
 
@@ -167,7 +242,6 @@ namespace Demo.Infrastructure.Services
                 .Where(x => deviceGuidList.Contains(x.DeviceInfoId))
                 .ToDictionaryAsync(x => x.DeviceInfoId);
 
-            // 依推播方式分群
             var appDevices = new List<DeviceInfo>();
             var webDevices = new List<DeviceInfo>();
             var emailDevices = new List<DeviceInfo>();
@@ -184,7 +258,7 @@ namespace Demo.Infrastructure.Services
 
             var tasks = new List<Task>();
 
-            // App/Web 分組依產品推播
+            // App/Web分組依產品推播
             if (appDevices.Any())
             {
                 foreach (var group in appDevices.GroupBy(d => d.ProductInfoId))
@@ -193,7 +267,6 @@ namespace Demo.Infrastructure.Services
                     tasks.Add(_appStrategy.SendAsync(productDevices, title, body, customData, template));
                 }
             }
-
             if (webDevices.Any())
             {
                 foreach (var group in webDevices.GroupBy(d => d.ProductInfoId))
@@ -202,8 +275,7 @@ namespace Demo.Infrastructure.Services
                     tasks.Add(_webStrategy.SendAsync(productDevices, title, body, customData, template));
                 }
             }
-
-            // Email/Line 分批
+            // Email/Line分批
             if (emailDevices.Any())
                 tasks.Add(_emailStrategy.SendAsync(emailDevices, title, body, customData, template));
             if (lineDevices.Any())
@@ -215,5 +287,47 @@ namespace Demo.Infrastructure.Services
             result.Message = $"推播已送出，共 {devices.Count} 台裝置";
             return result;
         }
+
+
+        /// <summary>
+        /// 依來源分類寫Log
+        /// </summary>
+        private void WriteNotificationLog(NotificationSourceType source, DeviceInfo device, string title, string body, bool status, string msg)
+        {
+            switch (source)
+            {
+                case NotificationSourceType.Backend:
+                    _db.BackendNotificationLogs.Add(new BackendNotificationLog
+                    {
+                        BackendNotificationLogId = Guid.NewGuid(),
+                        DeviceInfoId = device.DeviceInfoId,
+                        Gw = device.Gw,
+                        Title = title,
+                        Body = body,
+                        NotificationStatus = status,
+                        ResultMsg = msg,
+                        RetryCount = 0,
+                        CreateAtUtc = DateTime.UtcNow
+                    });
+                    break;
+                case NotificationSourceType.External:
+                    _db.ExternalNotificationLogs.Add(new ExternalNotificationLog
+                    {
+                        ExternalNotificationLogId = Guid.NewGuid(),
+                        DeviceInfoId = device.DeviceInfoId,
+                        Gw = device.Gw,
+                        Title = title,
+                        Body = body,
+                        NotificationStatus = status,
+                        ResultMsg = msg,
+                        RetryCount = 0,
+                        CreateAtUtc = DateTime.UtcNow
+                    });
+                    break;
+                    // Job 請於 ScheduleService 實作
+            }
+        }
+
+        #endregion private methods
     }
 }
