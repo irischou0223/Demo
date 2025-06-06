@@ -72,6 +72,12 @@ namespace Demo.Extensions
                 .Property(d => d.NotificationScheduledJobId)
                 .HasDefaultValueSql("gen_random_uuid()")
                 .ValueGeneratedOnAdd();
+
+            //NotificationLimitsConfig
+            modelBuilder.Entity<NotificationLimitsConfig>()
+                .Property(d => d.NotificationLimitsConfigId)
+                .HasDefaultValueSql("gen_random_uuid()")
+                .ValueGeneratedOnAdd();
         }
     }
 }

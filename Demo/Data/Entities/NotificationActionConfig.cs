@@ -62,18 +62,6 @@ namespace Demo.Data.Entities
         public string? FromName { get; set; } = null;
 
         [Required]
-        [Range(1, 10)] // 1分鐘到10分鐘
-        [Column("retry_delay_minutes", TypeName = "smallint")]
-        [Comment("重試延遲時間(分鐘)")]
-        public short RetryDelayMinutes { get; set; } = 3;
-
-        [Required]
-        [Range(1, 10)] // 合理的重試次數範圍
-        [Column("max_retry_count", TypeName = "smallint")]
-        [Comment("最多重試次數")]
-        public short MaxRetryCount { get; set; } = 5;
-
-        [Required]
         [Column("create_at_utc", TypeName = "timestamp with time zone")]
         [Comment("建立時間")]
         public DateTime CreateAtUtc { get; set; }

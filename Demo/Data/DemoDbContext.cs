@@ -23,6 +23,7 @@ namespace Demo.Data
         public DbSet<NotificationMsgTemplateData> NotificationMsgTemplateDatas { get; set; }
         public DbSet<NotificationActionConfig> NotificationActionConfigs { get; set; }
         public DbSet<NotificationScheduledJob> NotificationScheduledJobs { get; set; }
+        public DbSet<NotificationLimitsConfig> NotificationLimitsConfigs { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
