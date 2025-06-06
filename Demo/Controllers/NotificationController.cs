@@ -1,4 +1,4 @@
-﻿using Demo.Infrastructure.Services.Notification;
+﻿using Demo.Infrastructure.Services;
 using Demo.Models.DTOs;
 using Microsoft.AspNetCore.Mvc;
 
@@ -8,9 +8,9 @@ namespace Demo.Controllers
     [Route("api/[controller]")]
     public class NotificationController : ControllerBase
     {
-        private readonly NotificationContext _notificationContext;
+        private readonly NotificationService _notificationContext;
 
-        public NotificationController(NotificationContext notificationContext)
+        public NotificationController(NotificationService notificationContext)
         {
             _notificationContext = notificationContext;
         }

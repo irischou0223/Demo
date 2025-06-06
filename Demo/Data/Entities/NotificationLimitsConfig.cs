@@ -41,7 +41,7 @@ namespace Demo.Data.Entities
         [Required]
         [Column("backoff_multiplier", TypeName = "decimal(3,2)")]
         [Comment("退避倍數")]
-        public Decimal backoff_multiplier { get; set; }
+        public Decimal BackoffMultiplier { get; set; }
 
         [Required]
         [Column("max_retry_duration", TypeName = "integer")]
@@ -51,7 +51,7 @@ namespace Demo.Data.Entities
         [Required]
         [Column("is_retry_on_timeout", TypeName = "integer")]
         [Comment("超時是否重試")]
-        public int IsRetryOnTimeout { get; set; }
+        public bool IsRetryOnTimeout { get; set; }
 
         [Required]
         [Column("batch_size", TypeName = "integer")]
