@@ -1,8 +1,8 @@
-﻿using Demo.Data;
-using Demo.Data.Entities;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Caching.Memory;
+﻿using Microsoft.Extensions.Caching.Memory;
 using StackExchange.Redis;
+using Microsoft.EntityFrameworkCore;
+using Demo.Data.Entities;
+using Demo.Data;
 
 namespace Demo.Infrastructure.Services
 {
@@ -59,13 +59,58 @@ namespace Demo.Infrastructure.Services
         }
 
         /// <summary>
-        /// 清除指定產品的 NotificationActionConfig 快取（Memory & Redis）
+        /// 僅查快取，不查DB（可用於維運查看快取內容）
+        /// </summary>
+        public async Task<NotificationActionConfig?> PeekCacheAsync(Guid productInfoId)
+        {
+            string key = GetConfigCacheKey(productInfoId);
+
+            // 先查 Memory
+            if (_memoryCache.TryGetValue(key, out NotificationActionConfig config))
+                return config;
+
+            // 查 Redis
+            var redisValue = await _redisDb.StringGetAsync(key);
+            if (redisValue.HasValue)
+                return System.Text.Json.JsonSerializer.Deserialize<NotificationActionConfig>(redisValue);
+
+            return null;
+        }
+
+        /// <summary>
+        /// 使指定產品的 NotificationConfig 快取失效
         /// </summary>
         public async Task InvalidateNotificationConfigCacheAsync(Guid productInfoId)
         {
             string key = GetConfigCacheKey(productInfoId);
             _memoryCache.Remove(key);
             await _redisDb.KeyDeleteAsync(key);
+        }
+
+        /// <summary>
+        /// 清除所有 NotificationConfig 快取（僅 Redis）
+        /// </summary>
+        public async Task InvalidateAllNotificationConfigCacheAsync()
+        {
+            var endpoints = _redisDb.Multiplexer.GetEndPoints();
+            var server = _redisDb.Multiplexer.GetServer(endpoints.First());
+            var keys = server.Keys(pattern: "NotificationActionConfig:*").ToArray();
+            foreach (var key in keys)
+            {
+                await _redisDb.KeyDeleteAsync(key);
+            }
+            // MemoryCache 只能靠過期或重啟維護
+        }
+
+        /// <summary>
+        /// 查詢 Redis 目前 NotificationConfig 快取數量
+        /// </summary>
+        public Task<int> GetNotificationConfigCacheCountAsync()
+        {
+            var endpoints = _redisDb.Multiplexer.GetEndPoints();
+            var server = _redisDb.Multiplexer.GetServer(endpoints.First());
+            var keys = server.Keys(pattern: "NotificationActionConfig:*");
+            return Task.FromResult(keys.Count());
         }
     }
 }
