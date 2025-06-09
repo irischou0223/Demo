@@ -19,6 +19,9 @@ namespace Demo.Infrastructure.Services.Notification
             _configCache = configCache;
         }
 
+        /// <summary>
+        /// 發送 Web 推播，外層已分批
+        /// </summary>
         public async Task SendAsync(
             List<DeviceInfo> devices,
             string title,
@@ -28,21 +31,24 @@ namespace Demo.Infrastructure.Services.Notification
         {
             if (devices == null || devices.Count == 0) return;
 
+            // 1. 找到產品對應的 FCM 設定
             var productInfoId = devices.First().ProductInfoId;
             var config = await _configCache.GetNotificationConfigAsync(productInfoId);
             if (config == null)
             {
-                _logger.LogError("WebNotificationStrategy: 查無 NotificationActionConfig, ProductInfoId={ProductInfoId}", productInfoId);
+                _logger.LogError("WebNotificationStrategy: 查無 FCM 設定, ProductInfoId={ProductInfoId}", productInfoId);
                 return;
             }
 
+            // 2. 準備所有裝置 FCM token
             var tokens = devices.Select(d => d.FcmToken).Where(t => !string.IsNullOrWhiteSpace(t)).Distinct().ToList();
             if (!tokens.Any())
             {
-                _logger.LogWarning("WebNotificationStrategy: No FCM tokens to send for ProductInfoId={ProductInfoId}", productInfoId);
+                _logger.LogWarning("WebNotificationStrategy: 無 FCM token, ProductInfoId={ProductInfoId}", productInfoId);
                 return;
             }
 
+            // 3. 分批發送（FCM 一次最多 500 個 token）
             var app = FirebaseAppManager.GetOrCreateApp(productInfoId, config.FcmKey);
             var messaging = FirebaseMessaging.GetMessaging(app);
 

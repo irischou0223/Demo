@@ -19,6 +19,9 @@ namespace Demo.Infrastructure.Services.Notification
             _configCache = configCache;
         }
 
+        /// <summary>
+        /// 發送 APP 推播（每次僅針對同一產品一批裝置。外層已分批）
+        /// </summary>
         public async Task SendAsync(
             List<DeviceInfo> devices,
             string title,
@@ -28,65 +31,69 @@ namespace Demo.Infrastructure.Services.Notification
         {
             if (devices == null || devices.Count == 0) return;
 
+            // 1. 找到對應產品的 FCM 設定
             var productInfoId = devices.First().ProductInfoId;
             var config = await _configCache.GetNotificationConfigAsync(productInfoId);
             if (config == null)
             {
-                _logger.LogError("AppNotificationStrategy: 查無 NotificationActionConfig, ProductInfoId={ProductInfoId}", productInfoId);
+                _logger.LogError("AppNotificationStrategy: 查無 FCM 設定, ProductInfoId={ProductInfoId}", productInfoId);
                 return;
             }
 
+            // 2. 準備所有裝置 FCM token
             var tokens = devices.Select(d => d.FcmToken).Where(t => !string.IsNullOrWhiteSpace(t)).Distinct().ToList();
             if (!tokens.Any())
             {
-                _logger.LogWarning("AppNotificationStrategy: No FCM tokens to send for ProductInfoId={ProductInfoId}", productInfoId);
+                _logger.LogWarning("AppNotificationStrategy: 無 FCM token, ProductInfoId={ProductInfoId}", productInfoId);
                 return;
             }
 
-            // 取得對應 app
+            // 3. 準備 MulticastMessage
             var app = FirebaseAppManager.GetOrCreateApp(productInfoId, config.FcmKey);
             var messaging = FirebaseMessaging.GetMessaging(app);
 
-            const int batchSize = 500;
-            for (int i = 0; i < tokens.Count; i += batchSize)
+            var msg = new MulticastMessage
             {
-                var batchTokens = tokens.Skip(i).Take(batchSize).ToList();
-                var msg = new MulticastMessage
+                Tokens = tokens,
+                Notification = new FirebaseAdmin.Messaging.Notification
                 {
-                    Tokens = batchTokens,
-                    Notification = new FirebaseAdmin.Messaging.Notification
+                    Title = title,
+                    Body = body
+                },
+                Data = data ?? new Dictionary<string, string>(),
+                Android = new AndroidConfig
+                {
+                    Notification = new AndroidNotification
                     {
-                        Title = title,
-                        Body = body
-                    },
-                    Data = data ?? new Dictionary<string, string>(),
-                    Android = new AndroidConfig
-                    {
-                        Notification = new AndroidNotification
-                        {
-                            Sound = template?.Sound,
-                            ClickAction = template?.ClickActionApp
-                        }
-                    },
-                    Apns = new ApnsConfig
-                    {
-                        Aps = new Aps
-                        {
-                            Sound = template?.Sound,
-                            Badge = int.TryParse(template?.Badge, out var badge) ? badge : (int?)null
-                        }
+                        Sound = template?.Sound,
+                        ClickAction = template?.ClickActionApp
                     }
-                };
-                var response = await messaging.SendEachForMulticastAsync(msg);
-                _logger.LogInformation("AppNotificationStrategy: Sent {Count} tokens for ProductInfoId={ProductInfoId}, Success={Success}, Failure={Failure}", batchTokens.Count, productInfoId, response.SuccessCount, response.FailureCount);
-                if (response.FailureCount > 0)
+                },
+                Apns = new ApnsConfig
                 {
-                    for (int j = 0; j < response.Responses.Count; j++)
+                    Aps = new Aps
                     {
-                        if (!response.Responses[j].IsSuccess)
-                        {
-                            _logger.LogWarning("AppNotificationStrategy: Failed token {Token} for ProductInfoId={ProductInfoId}, error: {Error}", batchTokens[j], productInfoId, response.Responses[j].Exception?.Message);
-                        }
+                        Sound = template?.Sound,
+                        Badge = int.TryParse(template?.Badge, out var badge) ? badge : (int?)null
+                    }
+                }
+            };
+
+            // 4. 發送訊息給所有 token
+            var response = await messaging.SendEachForMulticastAsync(msg);
+
+            _logger.LogInformation("AppNotificationStrategy: Sent {Count} tokens for ProductInfoId={ProductInfoId}, Success={Success}, Failure={Failure}",
+                tokens.Count, productInfoId, response.SuccessCount, response.FailureCount);
+
+            // 5. 記錄失敗 token
+            if (response.FailureCount > 0)
+            {
+                for (int j = 0; j < response.Responses.Count; j++)
+                {
+                    if (!response.Responses[j].IsSuccess)
+                    {
+                        _logger.LogWarning("AppNotificationStrategy: Failed token {Token} for ProductInfoId={ProductInfoId}, error: {Error}",
+                            tokens[j], productInfoId, response.Responses[j].Exception?.Message);
                     }
                 }
             }

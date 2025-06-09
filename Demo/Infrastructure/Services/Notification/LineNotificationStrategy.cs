@@ -24,6 +24,9 @@ namespace Demo.Infrastructure.Services.Notification
             _logger = logger;
         }
 
+        /// <summary>
+        /// 發送 LINE 推播（傳入一批裝置，全部同一產品）
+        /// </summary>
         public async Task SendAsync(
             List<DeviceInfo> devices,
             string title,
@@ -33,24 +36,28 @@ namespace Demo.Infrastructure.Services.Notification
         {
             if (devices == null || devices.Count == 0) return;
 
+            // 1. 查產品對應 LINE 設定
             var productInfoId = devices.First().ProductInfoId;
             var config = await _configCache.GetNotificationConfigAsync(productInfoId);
             if (config == null || string.IsNullOrWhiteSpace(config.LineChannelAccessToken))
             {
-                _logger.LogError("LineNotificationStrategy: No config/token found for ProductInfoId={ProductInfoId}", productInfoId);
+                _logger.LogError("LineNotificationStrategy: 無 LINE 設定/token, ProductInfoId={ProductInfoId}", productInfoId);
                 return;
             }
 
-            var lineUserIds = devices.Select(d => d.LineId)
-                                     .Where(id => !string.IsNullOrWhiteSpace(id))
-                                     .Distinct()
-                                     .ToList();
-            if (lineUserIds.Count == 0)
+            // 2. 彙整有效 LineUserId
+            var lineUserIds = devices.Select(d => d.LineId).Where(id => !string.IsNullOrWhiteSpace(id)).Distinct().ToList();
+            if (!lineUserIds.Any())
             {
-                _logger.LogWarning("LineNotificationStrategy: No valid LineUserIds.");
+                _logger.LogWarning("LineNotificationStrategy: 無有效 LineUserIds, ProductInfoId={ProductInfoId}", productInfoId);
                 return;
             }
 
+            using var httpClient = new HttpClient();
+            httpClient.DefaultRequestHeaders.Authorization =
+                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", config.LineChannelAccessToken);
+
+            // 3. 發送訊息
             foreach (var userId in lineUserIds)
             {
                 try
@@ -60,14 +67,9 @@ namespace Demo.Infrastructure.Services.Notification
                         to = userId,
                         messages = new[]
                         {
-                            new { type = "text", text = $"{title ?? ""}\n{body ?? ""}" }
-                        }
+                        new { type = "text", text = $"{title ?? ""}\n{body ?? ""}" }
+                    }
                     };
-
-                    using var httpClient = new HttpClient();
-                    httpClient.DefaultRequestHeaders.Authorization =
-                        new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", config.LineChannelAccessToken);
-
                     var json = JsonConvert.SerializeObject(messageContent);
                     var content = new StringContent(json, Encoding.UTF8, "application/json");
 
@@ -75,12 +77,12 @@ namespace Demo.Infrastructure.Services.Notification
 
                     if (response.IsSuccessStatusCode)
                     {
-                        _logger.LogInformation("Line message sent to {UserId}, title: {Title}", userId, title);
+                        _logger.LogInformation("LineNotificationStrategy: Sent LINE message to {UserId}, title: {Title}", userId, title);
                     }
                     else
                     {
                         var respText = await response.Content.ReadAsStringAsync();
-                        _logger.LogWarning("Failed to send Line message to {UserId}, status: {Status}, resp: {Resp}", userId, response.StatusCode, respText);
+                        _logger.LogWarning("LineNotificationStrategy: Failed to send to {UserId}, status: {Status}, resp: {Resp}", userId, response.StatusCode, respText);
                     }
                 }
                 catch (System.Exception ex)

@@ -1,5 +1,6 @@
 ﻿using Demo.Data;
 using Demo.Data.Entities;
+using Demo.Enum;
 using Demo.Models.DTOs;
 using Hangfire;
 using Microsoft.EntityFrameworkCore;
@@ -23,13 +24,15 @@ namespace Demo.Infrastructure.Services
         }
 
         /// <summary>
-        /// Hangfire排程主入口
+        /// 排程主程序，依據條件逐筆執行推播
         /// </summary>
         public async Task ExecuteScheduledJobsAsync()
         {
             try
             {
                 var now = DateTime.UtcNow;
+
+                // 1. 取得待執行的排程
                 var jobs = await _db.NotificationScheduledJobs
                     .Where(j => j.IsEnabled && j.NextRunAtUtc != null && j.NextRunAtUtc <= now)
                     .ToListAsync();
@@ -38,7 +41,7 @@ namespace Demo.Infrastructure.Services
                 {
                     try
                     {
-                        // Step 1: 透過 notification_msg_template_id 取得範本與語系/標題/內容
+                        // 2. 查模板
                         var template = await _db.NotificationMsgTemplates
                             .FirstOrDefaultAsync(t => t.NotificationMsgTemplateId == job.NotificationMsgTemplateId);
                         if (template == null)
@@ -47,7 +50,7 @@ namespace Demo.Infrastructure.Services
                             continue;
                         }
 
-                        // Step 1b: 查 CodeInfo
+                        // 3. 查 CodeInfo
                         var codeInfo = await _db.CodeInfos.FirstOrDefaultAsync(c => c.CodeInfoId == template.CodeInfoId);
                         if (codeInfo == null)
                         {
@@ -55,49 +58,47 @@ namespace Demo.Infrastructure.Services
                             continue;
                         }
 
-                        // Step 2: 查 template data
+                        // 4. 查自訂資料
                         var templateDataList = await _db.NotificationMsgTemplateDatas
                             .Where(x => x.NotificationMsgTemplateId == template.NotificationMsgTemplateId)
                             .ToListAsync();
                         var templateData = templateDataList.ToDictionary(d => d.Key, d => d.Value);
 
-                        // Step 3: 依 NotificationScope 及 NotificationTarget/NotificationGroup 決定發送對象
+                        // 5. 決定推播目標
                         List<string> deviceIds = null;
                         string notificationGroup = null;
                         switch (job.NotificationScope)
                         {
-                            case 1: // single
+                            case 1: // 單一裝置
                                 if (job.NotificationTarget != null && job.NotificationTarget.Any())
                                     deviceIds = job.NotificationTarget.Select(g => g.ToString()).ToList();
                                 break;
-                            case 2: // group
+                            case 2: // 群組
                                 if (job.NotificationGroup != null && job.NotificationGroup.Any())
                                     notificationGroup = job.NotificationGroup.First();
                                 break;
-                            case 3: // all
+                            case 3: // 全部
                             default:
                                 // 不指定目標，Service 會自動發給全體
                                 break;
                         }
 
-                        // Step 4: 組 NotificationRequestDto
+                        // 6. 組裝推播請求
                         var request = new NotificationRequestDto
                         {
                             DeviceIds = deviceIds,
                             NotificationGroup = notificationGroup,
-                            Code = codeInfo.Code, // 可供策略用，但下方直接傳入標題內容等
-                            Lang = codeInfo.Lang
+                            NotificationMsgTemplateId = template.NotificationMsgTemplateId,
+                            Title = codeInfo.Title,
+                            Body = codeInfo.Body,
+                            Lang = codeInfo.Lang,
+                            Source = NotificationSourceType.Job
                         };
 
-                        var result = await _notificationService.NotifyByTargetAsync(
-                            request,
-                            codeInfo.Title ?? "",
-                            codeInfo.Body ?? "",
-                            template,
-                            templateData
-                        );
+                        // 7. 呼叫主推播服務（自動分流/分批、支援 queue）
+                        var result = await _notificationService.NotifyAsync(request, request.Source);
 
-                        // 可選：寫入 JobNotificationLog
+                        // 8. 寫入排程通知Log
                         var log = new JobNotificationLog
                         {
                             JobNotificationLogId = Guid.NewGuid(),
@@ -122,7 +123,7 @@ namespace Demo.Infrastructure.Services
                             _logger.LogInformation("排程推播成功: JobId={JobId}, Devices={Count}", job.NotificationScheduledJobId, deviceIds?.Count ?? 0);
                         }
 
-                        // 更新下次執行時間
+                        // 9. 更新下次執行時間
                         job.NextRunAtUtc = CalcNextRunTime(job.ScheduleType, job.NextRunAtUtc ?? job.ScheduleTime);
                         _db.NotificationScheduledJobs.Update(job);
                     }
@@ -147,16 +148,16 @@ namespace Demo.Infrastructure.Services
             // scheduleType: 0=immediate, 1=daily, 2=monthly, 3=yearly, 4=custom
             switch (scheduleType)
             {
-                case 0: // immediate
+                case 0: // 立即
                     return null;
-                case 1: // daily
+                case 1: // 每日
                     return from.AddDays(1);
-                case 2: // monthly
+                case 2: // 每月
                     return from.AddMonths(1);
-                case 3: // yearly
+                case 3: // 每年
                     return from.AddYears(1);
                 default:
-                    return from.AddDays(1); // custom 可依需求擴充
+                    return from.AddDays(1); // 其他可依需求擴充
             }
         }
     }

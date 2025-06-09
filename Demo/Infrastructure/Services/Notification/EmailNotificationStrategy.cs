@@ -21,66 +21,69 @@ namespace Demo.Infrastructure.Services.Notification
             _configCache = configCache;
         }
 
-        public async Task SendAsync(List<DeviceInfo> devices, string title, string body, Dictionary<string, string> data, NotificationMsgTemplate template)
+        /// <summary>
+        /// 發送 Email 推播（傳入一批裝置，全部同一產品）
+        /// </summary>
+        public async Task SendAsync(
+            List<DeviceInfo> devices,
+            string title,
+            string body,
+            Dictionary<string, string> data,
+            NotificationMsgTemplate template)
         {
             if (devices == null || devices.Count == 0) return;
 
+            // 1. 查產品對應 SMTP 設定
             var productInfoId = devices.First().ProductInfoId;
             var config = await _configCache.GetNotificationConfigAsync(productInfoId);
 
             if (config == null)
             {
-                _logger.LogError("EmailNotificationStrategy: No config found for ProductInfoId={ProductInfoId}", productInfoId);
+                _logger.LogError("EmailNotificationStrategy: 無 SMTP 設定, ProductInfoId={ProductInfoId}", productInfoId);
                 return;
             }
 
+            // 2. 彙整有效 Email
             var emails = devices.Select(d => d.Email).Where(e => !string.IsNullOrWhiteSpace(e)).Distinct().ToList();
             if (!emails.Any())
             {
-                _logger.LogWarning("EmailNotificationStrategy: No emails to send.");
+                _logger.LogWarning("EmailNotificationStrategy: 無有效 Email, ProductInfoId={ProductInfoId}", productInfoId);
                 return;
             }
 
-            const int batchSize = 100;
-            for (int i = 0; i < emails.Count; i += batchSize)
+            // 3. 建立 SMTP 連線
+            using var client = new SmtpClient();
+            try
             {
-                var batchEmails = emails.Skip(i).Take(batchSize).ToList();
+                await client.ConnectAsync(config.SmtpServer, config.SmtpPort, SecureSocketOptions.StartTls);
+                await client.AuthenticateAsync(config.UserName, config.Password);
 
-                // 共用一個 SMTP 連線
-                using var client = new SmtpClient();
-                try
+                foreach (var email in emails)
                 {
-                    var port = config.SmtpPort;
-                    await client.ConnectAsync(config.SmtpServer, port, SecureSocketOptions.StartTls);
-                    await client.AuthenticateAsync(config.UserName, config.Password);
-
-                    foreach (var email in batchEmails)
+                    try
                     {
-                        try
-                        {
-                            var message = new MimeMessage();
-                            message.From.Add(new MailboxAddress(config.FromName, config.FromEmail));
-                            message.To.Add(MailboxAddress.Parse(email));
-                            message.Subject = title;
-                            var builder = new BodyBuilder { HtmlBody = body };
-                            message.Body = builder.ToMessageBody();
+                        // 4. 組信件
+                        var message = new MimeMessage();
+                        message.From.Add(new MailboxAddress(config.FromName, config.FromEmail));
+                        message.To.Add(MailboxAddress.Parse(email));
+                        message.Subject = title;
+                        message.Body = new BodyBuilder { HtmlBody = body }.ToMessageBody();
 
-                            await client.SendAsync(message);
-
-                            _logger.LogInformation("EmailNotificationStrategy: Sent email to {Email}, title: {Title}", email, title);
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogError(ex, "EmailNotificationStrategy: Failed to send email to {Email}", email);
-                        }
+                        // 5. 發送
+                        await client.SendAsync(message);
+                        _logger.LogInformation("EmailNotificationStrategy: Sent email to {Email}, title: {Title}", email, title);
                     }
+                    catch (System.Exception ex)
+                    {
+                        _logger.LogError(ex, "EmailNotificationStrategy: Failed to send email to {Email}", email);
+                    }
+                }
 
-                    await client.DisconnectAsync(true);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "EmailNotificationStrategy: SMTP connection or authentication failed.");
-                }
+                await client.DisconnectAsync(true);
+            }
+            catch (System.Exception ex)
+            {
+                _logger.LogError(ex, "EmailNotificationStrategy: SMTP 連線或認證失敗");
             }
         }
     }

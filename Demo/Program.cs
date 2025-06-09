@@ -51,6 +51,7 @@ builder.Services.AddScoped<WebNotificationStrategy>();
 builder.Services.AddScoped<EmailNotificationStrategy>();
 builder.Services.AddScoped<LineNotificationStrategy>();
 builder.Services.AddScoped<NotificationService>();
+builder.Services.AddScoped<RetryService>();
 
 // Add services to the container.
 
@@ -77,6 +78,18 @@ RecurringJob.AddOrUpdate<ScheduleService>(
     methodCall: service => service.ExecuteScheduledJobsAsync(),
     cronExpression: Cron.Minutely
 );
+
+// ------------------------ 註冊重試任務（RecurringJob） ------------------------
+using (var scope = app.Services.CreateScope())
+{
+    var retryService = scope.ServiceProvider.GetRequiredService<RetryService>();
+    // 建立一個 recurring job，每5分鐘執行一次
+    RecurringJob.AddOrUpdate(
+        "ProcessAllRetriesJob", // job id
+        () => retryService.ProcessAllRetriesAsync(), // 要執行的方法
+        "*/5 * * * *" // Cron 表達式，每5分鐘
+    );
+}
 
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
