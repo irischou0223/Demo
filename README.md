@@ -436,18 +436,6 @@ public class NotificationService
 (策略) (策略) (策略) (策略)
 ```
 
----
-
-## HangFireJobs 目錄設計建議
-
-**是否建議將 job 相關功能獨立至 HangFireJobs 目錄？**
-
-### 業界建議
-- **高度推薦！**
-- 優點：
-  - Job 類型清晰分層（如排程任務、重試任務、批次任務獨立管理）
-  - 維護性/可測試性提升（Job 只負責 orchestration，Service 專注商業邏輯）
-  - 專案大型時更好管理（可加上 JobBase、JobUtils、Job專屬Log等）
 
 ### 實作方式
 - 新增 Demo/Infrastructure/HangFireJobs/ 目錄。
