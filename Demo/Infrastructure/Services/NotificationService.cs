@@ -31,7 +31,7 @@ namespace Demo.Infrastructure.Services
         /// <summary>
         /// 推播主要入口，可選同步發送或進 queue
         /// </summary>
-        public async Task<NotificationResultResponse> NotifyAsync(
+        public async Task<NotificationResponseDto> NotifyAsync(
             NotificationRequestDto request,
             NotificationSourceType source,
             bool useQueue = false)
@@ -41,7 +41,7 @@ namespace Demo.Infrastructure.Services
                 // 進 queue 非同步發送
                 await _queueService.EnqueueAsync(request, source);
                 _logger.LogInformation("推播加入佇列，來源: {Source}, Request: {@Request}", source, request);
-                return new NotificationResultResponse { IsSuccess = true, Message = "已加入推播佇列" };
+                return new NotificationResponseDto { IsSuccess = true, Message = "已加入推播佇列" };
             }
             else
             {
@@ -53,9 +53,9 @@ namespace Demo.Infrastructure.Services
         /// <summary>
         /// 依據條件查詢裝置，組合推播資料並發送
         /// </summary>
-        public async Task<NotificationResultResponse> NotifyByTargetAsync(NotificationRequestDto request, NotificationSourceType source)
+        public async Task<NotificationResponseDto> NotifyByTargetAsync(NotificationRequestDto request, NotificationSourceType source)
         {
-            var result = new NotificationResultResponse();
+            var result = new NotificationResponseDto();
 
             // 1. 查詢目標裝置
             var devices = await GetTargetDevicesAsync(request);
@@ -208,7 +208,7 @@ namespace Demo.Infrastructure.Services
         /// <summary>
         /// 依裝置推播啟用狀態分流，分批呼叫各推播策略
         /// </summary>
-        private async Task<NotificationResultResponse> NotifyByTargetAsyncInternal(
+        private async Task<NotificationResponseDto> NotifyByTargetAsyncInternal(
             List<DeviceInfo> devices,
             string title,
             string body,
@@ -217,7 +217,7 @@ namespace Demo.Infrastructure.Services
             NotificationSourceType source,
             bool writeLog = true)
         {
-            var result = new NotificationResultResponse();
+            var result = new NotificationResponseDto();
 
             // 通道失敗旗標 (thread-safe)
             int appFailed = 0, webFailed = 0, emailFailed = 0, lineFailed = 0;

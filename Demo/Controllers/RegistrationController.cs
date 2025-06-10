@@ -23,31 +23,48 @@ namespace Demo.Controllers
         [HttpPost]
         public async Task<IActionResult> Register([FromBody] RegisterDeviceRequest req)
         {
+            // 1. 基本輸入驗證
             if (string.IsNullOrWhiteSpace(req.DeviceId) ||
                 string.IsNullOrWhiteSpace(req.FirebaseProjectId) ||
                 string.IsNullOrWhiteSpace(req.AppVersion))
             {
-                _logger.LogWarning("裝置註冊請求缺少必要欄位 DeviceId={DeviceId}, FirebaseProjectId={FirebaseProjectId}, AppVersion={AppVersion}",
-                    req.DeviceId, req.FirebaseProjectId, req.AppVersion);
-                return BadRequest("DeviceId、FirebaseProjectId、AppVersion 必填");
+                var errors = new List<string>();
+                if (string.IsNullOrWhiteSpace(req.DeviceId)) errors.Add("DeviceId 為必填。");
+                if (string.IsNullOrWhiteSpace(req.FirebaseProjectId)) errors.Add("FirebaseProjectId 為必填。");
+                if (string.IsNullOrWhiteSpace(req.AppVersion)) errors.Add("AppVersion 為必填。");
+
+                _logger.LogWarning("裝置註冊請求缺少必要欄位：{Errors}", string.Join("; ", errors));
+                return BadRequest(new
+                {
+                    message = "缺少必要的欄位。",
+                    errors = errors
+                });
             }
 
             try
             {
-                var device = await _service.RegisterDeviceAsync(req);
+                // 2. 呼叫服務層進行裝置註冊業務邏輯
+                var (device, errorMessage) = await _service.RegisterDeviceAsync(req);
+
+                // 3. 根據服務層結果處理回應
                 if (device == null)
                 {
-                    _logger.LogWarning("裝置註冊失敗，無法建立 device DeviceId={DeviceId}", req.DeviceId);
-                    return NotFound($"Product: {req.FirebaseProjectId} 不存在");
-                }
+                    _logger.LogWarning("裝置註冊失敗，服務層返回錯誤：{ErrorMessage}，DeviceId={DeviceId}", errorMessage, req.DeviceId);
 
-                _logger.LogInformation("裝置註冊成功 DeviceInfoId={DeviceInfoId}, DeviceId={DeviceId}", device.DeviceInfoId, device.DeviceId);
+                    if (errorMessage == "找不到對應的產品資訊。")
+                    {
+                        return NotFound(errorMessage);
+                    }
+                    return BadRequest(errorMessage);
+                }
+                _logger.LogInformation("裝置註冊成功！新裝置 DeviceInfoId={DeviceInfoId}, DeviceId={DeviceId}", device.DeviceInfoId, device.DeviceId);
                 return Ok(device);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "裝置註冊發生例外 DeviceId={DeviceId}, Account={UserAccount}", req.DeviceId, req.UserAccount);
-                return StatusCode(500, "裝置註冊時發生錯誤：" + ex.Message);
+                // 4. 捕獲並處理任何未預期的例外
+                _logger.LogError(ex, "裝置註冊發生非預期例外！DeviceId={DeviceId}, Account={UserAccount}", req.DeviceId, req.UserAccount);
+                return StatusCode(StatusCodes.Status500InternalServerError, "裝置註冊時發生非預期錯誤，請稍後再試。");
             }
         }
     }

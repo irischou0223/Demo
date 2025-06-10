@@ -32,29 +32,27 @@ namespace Demo.Data
             #endregion Primary Key
 
             #region 預設值
-            modelBuilder.ConfigureUuidDefaults();
+            //modelBuilder.ConfigureUuidDefaults();
             //
             // APP (Firebase Server) - ID 1
             modelBuilder.Entity<NotificationLimitsConfig>().HasData(
                 new NotificationLimitsConfig
                 {
                     NotificationLimitsConfigId = Guid.NewGuid(),
-                    NotificationType = 1,
+                    NotificationType = Enum.NotificationChannelType.App,
+                    MaxRecipientsPerRequest = 500,
                     MaxAttempts = 5,
-                    InitialRetryDelay = 5,
-                    MaxRetryDelay = 300,
-                    BackoffMultiplier = 2.0m, // 注意 'm' 表示 decimal
-                    MaxRetryDuration = 3600,
+                    InitialRetryDelaySeconds = 5,
+                    MaxRetryDelaySeconds = 300,
+                    BackoffMultiplier = 2.0m, 
+                    MaxRetryDurationSeconds = 3600,
                     IsRetryOnTimeout = true,
                     BatchSize = 500,
                     MaxConcurrentTasks = 50,
                     RateLimitPerSecond = 1000,
-                    RateLimitPerMinute = 15000,
-                    MaxRecipientsPerRequest = 500,
-                    BatchIntervalMs = 10,
                     RequestTimeoutMs = 5000,
                     QueueMaxSize = 10000,
-                    ImmediateDelay = 0,
+                    InitialDispatchDelaySeconds = 0,
                     CreateAtUtc = DateTime.UtcNow
                 }
             );
@@ -64,22 +62,20 @@ namespace Demo.Data
                 new NotificationLimitsConfig
                 {
                     NotificationLimitsConfigId = Guid.NewGuid(),
-                    NotificationType = 2,
-                    MaxAttempts = 3,
-                    InitialRetryDelay = 10,
-                    MaxRetryDelay = 60,
-                    BackoffMultiplier = 1.5m,
-                    MaxRetryDuration = 600,
+                    NotificationType = Enum.NotificationChannelType.Web,
+                    MaxRecipientsPerRequest = 500,
+                    MaxAttempts = 5,
+                    InitialRetryDelaySeconds = 5,
+                    MaxRetryDelaySeconds = 300,
+                    BackoffMultiplier = 2.0m,
+                    MaxRetryDurationSeconds = 3600,
                     IsRetryOnTimeout = true,
                     BatchSize = 500,
-                    MaxConcurrentTasks = 30,
-                    RateLimitPerSecond = 500,
-                    RateLimitPerMinute = 10000,
-                    MaxRecipientsPerRequest = 500,
-                    BatchIntervalMs = 20,
-                    RequestTimeoutMs = 3000,
-                    QueueMaxSize = 5000,
-                    ImmediateDelay = 0,
+                    MaxConcurrentTasks = 50,
+                    RateLimitPerSecond = 1000,
+                    RequestTimeoutMs = 5000,
+                    QueueMaxSize = 10000,
+                    InitialDispatchDelaySeconds = 0,
                     CreateAtUtc = DateTime.UtcNow
                 }
             );
@@ -89,22 +85,20 @@ namespace Demo.Data
                 new NotificationLimitsConfig
                 {
                     NotificationLimitsConfigId = Guid.NewGuid(),
-                    NotificationType = 3,
-                    MaxAttempts = 7,
-                    InitialRetryDelay = 60,
-                    MaxRetryDelay = 3600,
-                    BackoffMultiplier = 2.5m,
-                    MaxRetryDuration = 86400,
-                    IsRetryOnTimeout = false,
-                    BatchSize = 200,
-                    MaxConcurrentTasks = 10,
-                    RateLimitPerSecond = 50,
-                    RateLimitPerMinute = 2000,
-                    MaxRecipientsPerRequest = 1,
-                    BatchIntervalMs = 1000,
-                    RequestTimeoutMs = 10000,
-                    QueueMaxSize = 20000,
-                    ImmediateDelay = 300,
+                    NotificationType = Enum.NotificationChannelType.Email,
+                    MaxRecipientsPerRequest = 500,
+                    MaxAttempts = 5,
+                    InitialRetryDelaySeconds = 5,
+                    MaxRetryDelaySeconds = 300,
+                    BackoffMultiplier = 2.0m,
+                    MaxRetryDurationSeconds = 3600,
+                    IsRetryOnTimeout = true,
+                    BatchSize = 500,
+                    MaxConcurrentTasks = 50,
+                    RateLimitPerSecond = 1000,
+                    RequestTimeoutMs = 5000,
+                    QueueMaxSize = 10000,
+                    InitialDispatchDelaySeconds = 0,
                     CreateAtUtc = DateTime.UtcNow
                 }
             );
@@ -114,22 +108,20 @@ namespace Demo.Data
                 new NotificationLimitsConfig
                 {
                     NotificationLimitsConfigId = Guid.NewGuid(),
-                    NotificationType = 4,
-                    MaxAttempts = 4,
-                    InitialRetryDelay = 30,
-                    MaxRetryDelay = 180,
-                    BackoffMultiplier = 1.8m,
-                    MaxRetryDuration = 1800,
+                    NotificationType = Enum.NotificationChannelType.Line,
+                    MaxRecipientsPerRequest = 500,
+                    MaxAttempts = 5,
+                    InitialRetryDelaySeconds = 5,
+                    MaxRetryDelaySeconds = 300,
+                    BackoffMultiplier = 2.0m,
+                    MaxRetryDurationSeconds = 3600,
                     IsRetryOnTimeout = true,
                     BatchSize = 500,
-                    MaxConcurrentTasks = 40,
-                    RateLimitPerSecond = 800,
-                    RateLimitPerMinute = 12000,
-                    MaxRecipientsPerRequest = 500,
-                    BatchIntervalMs = 50,
-                    RequestTimeoutMs = 4000,
-                    QueueMaxSize = 8000,
-                    ImmediateDelay = 10,
+                    MaxConcurrentTasks = 50,
+                    RateLimitPerSecond = 1000,
+                    RequestTimeoutMs = 5000,
+                    QueueMaxSize = 10000,
+                    InitialDispatchDelaySeconds = 0,
                     CreateAtUtc = DateTime.UtcNow
                 }
             );

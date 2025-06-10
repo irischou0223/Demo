@@ -1,12 +1,18 @@
 using Demo.Config;
 using Demo.Data;
+using Demo.Infrastructure.Hangfire;
 using Demo.Infrastructure.Services;
 using Demo.Infrastructure.Services.Notification;
 using Hangfire;
 using Hangfire.PostgreSql;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
 using Serilog;
 using StackExchange.Redis;
+using System.Net;
+using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -53,6 +59,34 @@ builder.Services.AddScoped<LineNotificationStrategy>();
 builder.Services.AddScoped<NotificationService>();
 builder.Services.AddScoped<RetryService>();
 
+// ------------------------ 新增：認證 (Authentication) 設定 ------------------------
+// 配置 JWT Bearer 認證
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true, // 驗證發行者
+            ValidateAudience = true, // 驗證受眾
+            ValidateLifetime = true, // 驗證 Token 的生命週期 (過期時間)
+            ValidateIssuerSigningKey = true, // 驗證簽章金鑰 (確保 Token 沒被篡改)
+
+            // 從 appsettings.json 讀取配置
+            ValidIssuer = builder.Configuration["Jwt:Issuer"],
+            ValidAudience = builder.Configuration["Jwt:Audience"],
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"]))
+        };
+    });
+
+// ------------------------ 新增：授權 (Authorization) 設定 ------------------------
+// 定義授權策略，例如 "AdminPolicy" 要求使用者擁有 "Admin" 角色
+builder.Services.AddAuthorization(options =>
+{
+    options.AddPolicy("AdminPolicy", policy => policy.RequireRole("Admin"));
+    // 您也可以定義其他策略，例如：
+    // options.AddPolicy("ManagerPolicy", policy => policy.RequireRole("Manager", "Admin"));
+});
+
 // Add services to the container.
 
 builder.Services.AddControllers();
@@ -98,7 +132,38 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
+// ------------------------ 新增：全域例外處理中介軟體 (Global Exception Handling Middleware) ------------------------
+// 建議放在 UseHttpsRedirection 之後，但要放在 UseAuthentication 和 UseAuthorization 之前，
+// 這樣可以捕獲到大部分未處理的 API 邏輯錯誤。
+app.UseExceptionHandler(errorApp =>
+{
+    errorApp.Run(async context =>
+    {
+        context.Response.StatusCode = (int)HttpStatusCode.InternalServerError;
+        context.Response.ContentType = "application/json";
+
+        var exceptionHandlerPathFeature = context.Features.Get<IExceptionHandlerPathFeature>();
+        var exception = exceptionHandlerPathFeature?.Error;
+
+        // 使用 Serilog 記錄錯誤日誌
+        app.Logger.LogError(exception, "An unhandled exception occurred at {Path}: {Message}",
+            exceptionHandlerPathFeature?.Path, exception?.Message);
+
+        await context.Response.WriteAsJsonAsync(new
+        {
+            StatusCode = context.Response.StatusCode,
+            Message = "An unexpected error occurred. Please try again later.",
+            // 在開發環境下，可以包含詳細錯誤資訊，但生產環境不建議
+            // Details = app.Environment.IsDevelopment() ? exception?.StackTrace : null
+        });
+    });
+});
+
 app.UseHttpsRedirection();
+
+// ------------------------ 新增：認證中介軟體 (Authentication Middleware) ------------------------
+// 必須放在 UseAuthorization 之前
+app.UseAuthentication();
 
 app.UseAuthorization();
 
