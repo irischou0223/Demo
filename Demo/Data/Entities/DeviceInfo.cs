@@ -42,14 +42,14 @@ namespace Demo.Data.Entities
         [StringLength(100)]
         [Column("mobile", TypeName = "varchar")]
         [Comment("裝置名稱")]
-        public string Mobile { get; set; } = string.Empty;
+        public string? Mobile { get; set; } = null;
 
         [Required, StringLength(100)]
         [Column("gw", TypeName = "varchar")]
         [Comment("主機SSID名稱")]
         public string Gw { get; set; } = null!;
 
-        [Required, StringLength(255)]
+        [Required, StringLength(254)]
         [Column("email", TypeName = "varchar")]
         [Comment("電子郵件")]
         public string Email { get; set; } = null!;
@@ -62,22 +62,22 @@ namespace Demo.Data.Entities
         [StringLength(100)]
         [Column("msgarm", TypeName = "varchar")]
         [Comment("Server啟動時指定音效")]
-        public string MsgArm { get; set; } = "default: Home2S_Channel_2";
+        public string MsgArm { get; set; } = "Home2S_Channel_2";
 
         [StringLength(100)]
         [Column("msgdisarm", TypeName = "varchar")]
         [Comment("Server解除時指定音效")]
-        public string MsgDisArm { get; set; } = "default: Home2S_Channel_4";
+        public string MsgDisArm { get; set; } = "Home2S_Channel_4";
 
         [StringLength(100)]
         [Column("alarm", TypeName = "varchar")]
         [Comment("Alarm時指定音效")]
-        public string Alarm { get; set; } = "default: Home2S_Channel_0";
+        public string Alarm { get; set; } = "Home2S_Channel_0";
 
         [StringLength(100)]
         [Column("panic", TypeName = "varchar")]
         [Comment("Panic時指定音效")]
-        public string Panic { get; set; } = "default: Home2S_Channel_3";
+        public string Panic { get; set; } = "Home2S_Channel_3";
 
         [Required]
         [Column("status", TypeName = "boolean")]

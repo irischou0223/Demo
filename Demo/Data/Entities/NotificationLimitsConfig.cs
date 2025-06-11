@@ -17,7 +17,7 @@ namespace Demo.Data.Entities
 
         [Column("notification_type", TypeName = "integer")]
         [Comment("通知類型: 1=APP, 2=Web, 3=Email, 4=Line")]
-        public NotificationChannelType NotificationType { get; set; } // 使用 Enum
+        public NotificationChannelType NotificationType { get; set; }
 
         [Required]
         [Column("max_recipients_per_request", TypeName = "integer")]
@@ -36,7 +36,7 @@ namespace Demo.Data.Entities
         public int InitialRetryDelaySeconds { get; set; }
 
         [Required]
-        [Column("max_retry_delay_seconds", TypeName = "integer")] 
+        [Column("max_retry_delay_seconds", TypeName = "integer")]
         [Comment("最大重試延遲(秒)")]
         public int MaxRetryDelaySeconds { get; set; }
 
@@ -46,12 +46,12 @@ namespace Demo.Data.Entities
         public Decimal BackoffMultiplier { get; set; }
 
         [Required]
-        [Column("max_retry_duration_seconds", TypeName = "integer")] 
-        [Comment("最大重試持續時間(秒) (從第一次嘗試開始計算)")]
+        [Column("max_retry_duration_seconds", TypeName = "integer")]
+        [Comment("最大重試持續時間(秒)")]
         public int MaxRetryDurationSeconds { get; set; }
 
         [Required]
-        [Column("is_retry_on_timeout", TypeName = "boolean")] 
+        [Column("is_retry_on_timeout", TypeName = "boolean")]
         [Comment("超時是否重試")]
         public bool IsRetryOnTimeout { get; set; }
         // --- 重試策略設定結束 ---
@@ -64,12 +64,12 @@ namespace Demo.Data.Entities
 
         [Required]
         [Column("max_concurrent_tasks", TypeName = "integer")]
-        [Comment("最大併發任務數 (控制同時進行的發送批次或單個請求)")]
+        [Comment("最大併發任務數")]
         public int MaxConcurrentTasks { get; set; }
 
         [Required]
         [Column("rate_limit_per_second", TypeName = "integer")]
-        [Comment("每秒允許的總請求/操作數量 (核心限流參數)")]
+        [Comment("每秒允許的總請求/操作數量")]
         public int RateLimitPerSecond { get; set; }
 
         [Required]

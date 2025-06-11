@@ -1,14 +1,16 @@
-﻿using Demo.Config;
-using Demo.Data.Entities;
+﻿using Demo.Data.Entities;
 using MailKit.Net.Smtp;
 using MailKit.Security;
-using Microsoft.Extensions.Options;
 using MimeKit;
 
 namespace Demo.Infrastructure.Services.Notification
 {
     /// <summary>
-    /// Email 推播策略，SMTP 實作
+    /// Email 推播策略，SMTP 實作<br/>
+    /// 流程說明：<br/>
+    /// 1. 查產品 SMTP 設定<br/>
+    /// 2. 彙整有效 Email（已由 NotificationService 分批，每批 devices 皆同產品）<br/>
+    /// 3. 逐一寄送，記錄成功／失敗 log
     /// </summary>
     public class EmailNotificationStrategy : INotificationStrategy
     {
@@ -24,14 +26,16 @@ namespace Demo.Infrastructure.Services.Notification
         /// <summary>
         /// 發送 Email 推播（傳入一批裝置，全部同一產品）
         /// </summary>
-        public async Task SendAsync(
-            List<DeviceInfo> devices,
-            string title,
-            string body,
-            Dictionary<string, string> data,
-            NotificationMsgTemplate template)
+        public async Task SendAsync(List<DeviceInfo> devices, string title, string body, Dictionary<string, string> data, NotificationMsgTemplate template)
         {
-            if (devices == null || devices.Count == 0) return;
+            _logger.LogInformation("EmailNotificationStrategy.SendAsync 開始, ProductInfoId={ProductInfoId}, DeviceCount={DeviceCount}",
+             devices.FirstOrDefault()?.ProductInfoId, devices.Count);
+
+            if (devices == null || devices.Count == 0)
+            {
+                _logger.LogWarning("EmailNotificationStrategy.SendAsync 結束，裝置數量為0");
+                return;
+            }
 
             // 1. 查產品對應 SMTP 設定
             var productInfoId = devices.First().ProductInfoId;
@@ -40,6 +44,7 @@ namespace Demo.Infrastructure.Services.Notification
             if (config == null)
             {
                 _logger.LogError("EmailNotificationStrategy: 無 SMTP 設定, ProductInfoId={ProductInfoId}", productInfoId);
+                _logger.LogWarning("EmailNotificationStrategy.SendAsync 結束，查無 SMTP 設定");
                 return;
             }
 
@@ -48,6 +53,7 @@ namespace Demo.Infrastructure.Services.Notification
             if (!emails.Any())
             {
                 _logger.LogWarning("EmailNotificationStrategy: 無有效 Email, ProductInfoId={ProductInfoId}", productInfoId);
+                _logger.LogWarning("EmailNotificationStrategy.SendAsync 結束，無有效 Email");
                 return;
             }
 
@@ -85,6 +91,7 @@ namespace Demo.Infrastructure.Services.Notification
             {
                 _logger.LogError(ex, "EmailNotificationStrategy: SMTP 連線或認證失敗");
             }
+            _logger.LogInformation("EmailNotificationStrategy.SendAsync 結束, ProductInfoId={ProductInfoId}, DeviceCount={DeviceCount}", productInfoId, devices.Count);
         }
     }
 }

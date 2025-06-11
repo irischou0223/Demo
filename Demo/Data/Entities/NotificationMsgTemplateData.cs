@@ -5,13 +5,13 @@ using System.ComponentModel.DataAnnotations.Schema;
 namespace Demo.Data.Entities
 {
     [Table("notificatio_msg_template_data")]
-    [Comment("通知訊息範本-APP自訂資料")]
+    [Comment("通知訊息模板明細")]
     public class NotificationMsgTemplateData
     {
         [Key]
         [Required]
         [Column("notification_msg_template_data", TypeName = "uuid")]
-        [Comment("通知訊息範本-APP自訂資料UID")]
+        [Comment("通知訊息模板明細UID")]
         public Guid NotificationMsgTemplateDataId { get; set; }
 
         [Required]

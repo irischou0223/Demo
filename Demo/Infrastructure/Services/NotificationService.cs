@@ -7,6 +7,15 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Demo.Infrastructure.Services
 {
+    /// <summary>
+    /// 推播服務總管，負責協調查詢目標、分流至各推播策略、限流、失敗重試與日誌記錄。
+    /// 流程說明：
+    /// 1. NotifyAsync：推播請求入口，決定直發或進 queue。
+    /// 2. NotifyByTargetAsync：依 target 查裝置、組出推播內容、流向各通道策略。
+    /// 3. NotifyByTargetAsyncInternal：依裝置推播狀態，限流分批，調用各策略（App/Web/Email/Line）。
+    /// 4. 失敗可用 RetrySendNotificationAsync 依 log 重發。
+    /// 5. 內部會自動寫入發送 Log（依通道/來源不同）。
+    /// </summary>
     public class NotificationService
     {
         private readonly DemoDbContext _db;
@@ -31,38 +40,53 @@ namespace Demo.Infrastructure.Services
         /// <summary>
         /// 推播主要入口，可選同步發送或進 queue
         /// </summary>
-        public async Task<NotificationResponseDto> NotifyAsync(
-            NotificationRequestDto request,
-            NotificationSourceType source,
-            bool useQueue = false)
+        /// <param name="request">推播請求物件</param>
+        /// <param name="source">推播來源（Backend/External）</param>
+        /// <param name="useQueue">是否進 queue 非同步處理</param>
+        /// <returns>推播結果</returns>
+        public async Task<NotificationResponseDto> NotifyAsync(NotificationRequestDto request, NotificationSourceType source, bool useQueue = false)
         {
+            _logger.LogInformation("[ NotificationService ] NotifyAsync 開始，來源: {Source}, useQueue: {UseQueue}, Request: {@Request}", source, useQueue, request);
+
+            NotificationResponseDto result;
             if (useQueue)
             {
                 // 進 queue 非同步發送
+                _logger.LogInformation("[ NotificationService ] 推播即將加入佇列，來源: {Source}", source);
                 await _queueService.EnqueueAsync(request, source);
-                _logger.LogInformation("推播加入佇列，來源: {Source}, Request: {@Request}", source, request);
-                return new NotificationResponseDto { IsSuccess = true, Message = "已加入推播佇列" };
+                _logger.LogInformation("[ NotificationService ] 推播已加入佇列，來源: {Source}", source);
+                result = new NotificationResponseDto { IsSuccess = true, Message = "已加入推播佇列" };
             }
             else
             {
                 // 直接同步推播
-                return await NotifyByTargetAsync(request, source);
+                result = await NotifyByTargetAsync(request, source);
             }
+            _logger.LogInformation("[ NotificationService ] NotifyAsync 結束，來源: {Source}, useQueue: {UseQueue}, IsSuccess: {IsSuccess}, Message: {Message}", source, useQueue, result.IsSuccess, result.Message);
+            return result;
         }
 
         /// <summary>
         /// 依據條件查詢裝置，組合推播資料並發送
+        /// 1. 查詢目標裝置
+        /// 2. 決定推播內容來源（templateId 或 code）
+        /// 3. 分流調用推播
         /// </summary>
         public async Task<NotificationResponseDto> NotifyByTargetAsync(NotificationRequestDto request, NotificationSourceType source)
         {
+            _logger.LogInformation("[ NotificationService ] NotifyByTargetAsync 開始，來源: {Source}, Request: {@Request}", source, request);
+
             var result = new NotificationResponseDto();
 
             // 1. 查詢目標裝置
             var devices = await GetTargetDevicesAsync(request);
+            _logger.LogInformation("[ NotificationService ] NotifyByTargetAsync 查詢到裝置數量: {DeviceCount}", devices.Count);
+
             if (!devices.Any())
             {
                 result.IsSuccess = false;
                 result.Message = "查無推播目標裝置";
+                _logger.LogWarning("[ NotificationService ] NotifyByTargetAsync 結束，查無推播目標裝置");
                 return result;
             }
 
@@ -74,7 +98,8 @@ namespace Demo.Infrastructure.Services
             // 2. 決定推播內容來源（templateId 或 code）
             if (request.NotificationMsgTemplateId != null)
             {
-                // 2a. 以 templateId 查找模板與自訂資料
+                // [補充說明] 以 templateId 查找訊息模板，常用於自訂訊息模板情境
+                _logger.LogInformation("[ NotificationService ] NotifyByTargetAsync 使用 templateId: {TemplateId}", request.NotificationMsgTemplateId);
                 template = await _db.NotificationMsgTemplates
                     .FirstOrDefaultAsync(t => t.NotificationMsgTemplateId == request.NotificationMsgTemplateId.Value);
                 if (template == null)
@@ -94,13 +119,15 @@ namespace Demo.Infrastructure.Services
             }
             else
             {
-                // 2b. 以 code 查代碼資訊，並找對應模板與自訂資料
+                // [補充說明] 以 code 查找標準訊息模板，常用於依規格定義的訊息通知
+                _logger.LogInformation("[ NotificationService ] NotifyByTargetAsync 使用 code: {Code}", request.Code);
                 var lang = !string.IsNullOrWhiteSpace(request.Lang) ? request.Lang : devices.FirstOrDefault()?.Lang ?? "zh-TW";
                 var codeInfo = await _db.CodeInfos.FirstOrDefaultAsync(x => x.Code == request.Code && x.Lang == lang);
                 if (codeInfo == null)
                 {
                     result.IsSuccess = false;
                     result.Message = "查無對應通知代碼";
+                    _logger.LogWarning("[ NotificationService ] NotifyByTargetAsync 結束，查無對應通知代碼");
                     return result;
                 }
 
@@ -116,6 +143,7 @@ namespace Demo.Infrastructure.Services
                 {
                     result.IsSuccess = false;
                     result.Message = "查無訊息模板";
+                    _logger.LogWarning("[ NotificationService ] NotifyByTargetAsync 結束，查無訊息模板");
                     return result;
                 }
 
@@ -129,7 +157,11 @@ namespace Demo.Infrastructure.Services
             }
 
             // 3. 依策略分流批次推播
-            return await NotifyByTargetAsyncInternal(devices, title, body, template, customData, source);
+            result = await NotifyByTargetAsyncInternal(devices, title, body, template, customData, source);
+
+            _logger.LogInformation("[ NotificationService ] NotifyByTargetAsync 結束，來源: {Source}, IsSuccess: {IsSuccess}, Message: {Message}", source, result.IsSuccess, result.Message);
+
+            return result;
         }
 
         /// <summary>
@@ -137,6 +169,8 @@ namespace Demo.Infrastructure.Services
         /// </summary>
         public async Task<bool> RetrySendNotificationAsync(object log, bool isBackend = false)
         {
+            _logger.LogInformation("[ NotificationService ] RetrySendNotificationAsync 開始, isBackend: {IsBackend}", isBackend);
+
             // 1. 解析 Log 欄位
             Guid deviceInfoId;
             string title, body;
@@ -164,16 +198,24 @@ namespace Demo.Infrastructure.Services
             }
             else
             {
-                _logger.LogWarning("RetrySendNotificationAsync: Log型別不正確");
+                _logger.LogWarning("[ NotificationService ] RetrySendNotificationAsync: Log型別不正確");
                 return false;
             }
 
             // 2. 已發送成功則不重發
-            if (notificationStatus) return true;
+            if (notificationStatus)
+            {
+                _logger.LogInformation("[ NotificationService ] RetrySendNotificationAsync 結束，無需重發，已標示成功");
+                return true;
+            }
 
             // 3. 查裝置
             var device = await _db.DeviceInfos.FirstOrDefaultAsync(x => x.DeviceInfoId == deviceInfoId && x.Status);
-            if (device == null) return false;
+            if (device == null)
+            {
+                _logger.LogWarning("[ NotificationService ] RetrySendNotificationAsync 結束，查無裝置 DeviceInfoId={DeviceInfoId}", deviceInfoId);
+                return false;
+            }
 
             var devices = new List<DeviceInfo> { device };
             var customData = new Dictionary<string, string>();
@@ -201,12 +243,17 @@ namespace Demo.Infrastructure.Services
                 external.ResultMsg = msg;
             }
 
+            _logger.LogInformation("[ NotificationService ] RetrySendNotificationAsync 結束, isBackend: {IsBackend}, 成功: {IsSuccess}", isBackend, isSuccess);
             return isSuccess;
         }
 
         #region private methods
+
         /// <summary>
-        /// 依裝置推播啟用狀態分流，分批呼叫各推播策略
+        /// 分流通道，依各裝置推播啟用狀態分批推播，支援多種限流與批次控制（App/Web/Email/Line）
+        /// 1. 取得各裝置的推播啟用設定
+        /// 2. 依通道分流、分批、限流
+        /// 3. 並行發送，記錄回應與失敗，依需寫入通知 Log
         /// </summary>
         private async Task<NotificationResponseDto> NotifyByTargetAsyncInternal(
             List<DeviceInfo> devices,
@@ -217,6 +264,8 @@ namespace Demo.Infrastructure.Services
             NotificationSourceType source,
             bool writeLog = true)
         {
+            _logger.LogInformation("[ NotificationService ] NotifyByTargetAsyncInternal 開始，裝置數量: {DeviceCount}, Title: {Title}, Source: {Source}", devices.Count, title, source);
+
             var result = new NotificationResponseDto();
 
             // 通道失敗旗標 (thread-safe)
@@ -280,6 +329,7 @@ namespace Demo.Infrastructure.Services
                     await appSemaphore.WaitAsync();
                     tasks.Add(Task.Run(async () =>
                     {
+                        _logger.LogInformation("[ NotificationService ] APP推播開始，批次裝置數: {BatchCount}, ProductInfoId: {ProductInfoId}", batch.Count, group.Key);
                         try
                         {
                             await _appStrategy.SendAsync(batch, title, body, customData, template);
@@ -290,18 +340,19 @@ namespace Demo.Infrastructure.Services
                                     WriteNotificationLog(source, device, title, body, true, "App推播已發送");
                                 }
                             }
+                            _logger.LogInformation("[ NotificationService ] APP推播結束，批次裝置數: {BatchCount}, ProductInfoId: {ProductInfoId}", batch.Count, group.Key);
                         }
                         catch (Exception ex)
                         {
                             Interlocked.Exchange(ref appFailed, 1);
-                            foreach (var device in batch)
+                            if (writeLog)
                             {
-                                if (writeLog)
+                                foreach (var device in batch)
                                 {
                                     WriteNotificationLog(source, device, title, body, false, $"App推播失敗: {ex.Message}");
                                 }
                             }
-                            _logger.LogError(ex, "App推播失敗");
+                            _logger.LogError(ex, "[ NotificationService ] App推播失敗，ProductInfoId: {ProductInfoId}", group.Key);
                         }
                         finally
                         {
@@ -320,28 +371,30 @@ namespace Demo.Infrastructure.Services
                     await webSemaphore.WaitAsync();
                     tasks.Add(Task.Run(async () =>
                     {
+                        _logger.LogInformation("[ NotificationService ] Web推播開始，批次裝置數: {BatchCount}, ProductInfoId: {ProductInfoId}", batch.Count, group.Key);
                         try
                         {
                             await _webStrategy.SendAsync(batch, title, body, customData, template);
-                            foreach (var device in batch)
+                            if (writeLog)
                             {
-                                if (writeLog)
+                                foreach (var device in batch)
                                 {
                                     WriteNotificationLog(source, device, title, body, true, "Web推播已發送");
                                 }
                             }
+                            _logger.LogInformation("[ NotificationService ] Web推播結束，批次裝置數: {BatchCount}, ProductInfoId: {ProductInfoId}", batch.Count, group.Key);
                         }
                         catch (Exception ex)
                         {
                             Interlocked.Exchange(ref webFailed, 1);
-                            foreach (var device in batch)
+                            if (writeLog)
                             {
-                                if (writeLog)
+                                foreach (var device in batch)
                                 {
                                     WriteNotificationLog(source, device, title, body, false, $"Web推播失敗: {ex.Message}");
                                 }
                             }
-                            _logger.LogError(ex, "Web推播失敗");
+                            _logger.LogError(ex, "[ NotificationService ] Web推播失敗，ProductInfoId: {ProductInfoId}", group.Key);
                         }
                         finally
                         {
@@ -360,28 +413,30 @@ namespace Demo.Infrastructure.Services
                     await emailSemaphore.WaitAsync();
                     tasks.Add(Task.Run(async () =>
                     {
+                        _logger.LogInformation("[ NotificationService ] Email推播開始，批次裝置數: {BatchCount}, ProductInfoId: {ProductInfoId}", batch.Count, group.Key);
                         try
                         {
                             await _emailStrategy.SendAsync(batch, title, body, customData, template);
-                            foreach (var device in batch)
+                            if (writeLog)
                             {
-                                if (writeLog)
+                                foreach (var device in batch)
                                 {
-                                    WriteNotificationLog(source, device, title, body, true, "Email已發送");
+                                    WriteNotificationLog(source, device, title, body, true, "Email推播已發送");
                                 }
                             }
+                            _logger.LogInformation("[ NotificationService ] Email推播結束，批次裝置數: {BatchCount}, ProductInfoId: {ProductInfoId}", batch.Count, group.Key);
                         }
                         catch (Exception ex)
                         {
                             Interlocked.Exchange(ref emailFailed, 1);
-                            foreach (var device in batch)
+                            if (writeLog)
                             {
-                                if (writeLog)
+                                foreach (var device in batch)
                                 {
                                     WriteNotificationLog(source, device, title, body, false, $"Email推播失敗: {ex.Message}");
                                 }
                             }
-                            _logger.LogError(ex, "Email推播失敗");
+                            _logger.LogError(ex, "[ NotificationService ] Email推播失敗，ProductInfoId: {ProductInfoId}", group.Key);
                         }
                         finally
                         {
@@ -400,28 +455,30 @@ namespace Demo.Infrastructure.Services
                     await lineSemaphore.WaitAsync();
                     tasks.Add(Task.Run(async () =>
                     {
+                        _logger.LogInformation("[ NotificationService ] Line推播開始，批次裝置數: {BatchCount}, ProductInfoId: {ProductInfoId}", batch.Count, group.Key);
                         try
                         {
                             await _lineStrategy.SendAsync(batch, title, body, customData, template);
-                            foreach (var device in batch)
+                            if (writeLog)
                             {
-                                if (writeLog)
+                                foreach (var device in batch)
                                 {
-                                    WriteNotificationLog(source, device, title, body, true, "Line已發送");
+                                    WriteNotificationLog(source, device, title, body, true, "Line推播已發送");
                                 }
                             }
+                            _logger.LogInformation("[ NotificationService ] Line推播結束，批次裝置數: {BatchCount}, ProductInfoId: {ProductInfoId}", batch.Count, group.Key);
                         }
                         catch (Exception ex)
                         {
                             Interlocked.Exchange(ref lineFailed, 1);
-                            foreach (var device in batch)
+                            if (writeLog)
                             {
-                                if (writeLog)
+                                foreach (var device in batch)
                                 {
                                     WriteNotificationLog(source, device, title, body, false, $"Line推播失敗: {ex.Message}");
                                 }
                             }
-                            _logger.LogError(ex, "Line推播失敗");
+                            _logger.LogError(ex, "[ NotificationService ] Line推播失敗，ProductInfoId: {ProductInfoId}", group.Key);
                         }
                         finally
                         {
@@ -449,9 +506,15 @@ namespace Demo.Infrastructure.Services
             if (lineFailed != 0) failList.Add("LINE");
 
             if (failList.Count == 0)
+            {
                 result.Message = $"推播已送出，共 {devices.Count} 台裝置";
+            }
             else
+            {
                 result.Message = $"推播部份通道({string.Join(",", failList)})有失敗，共 {devices.Count} 台裝置";
+            }
+
+            _logger.LogInformation("[ NotificationService ] NotifyByTargetAsyncInternal 結束，裝置數量: {DeviceCount}, IsSuccess: {IsSuccess}, Message: {Message}", devices.Count, result.IsSuccess, result.Message);
 
             return result;
         }
@@ -461,10 +524,10 @@ namespace Demo.Infrastructure.Services
         /// </summary>
         private async Task<List<DeviceInfo>> GetTargetDevicesAsync(NotificationRequestDto request)
         {
-            if (request.DeviceIds != null && request.DeviceIds.Any())
+            if (request.DeviceInfoIds != null && request.DeviceInfoIds.Any())
             {
                 return await _db.DeviceInfos
-                    .Where(x => request.DeviceIds.Contains(x.DeviceId) && x.Status)
+                    .Where(x => request.DeviceInfoIds.Contains(x.DeviceInfoId) && x.Status)
                     .ToListAsync();
             }
             else if (!string.IsNullOrWhiteSpace(request.NotificationGroup))
@@ -482,7 +545,7 @@ namespace Demo.Infrastructure.Services
         }
 
         /// <summary>
-        /// List 分批工具
+        /// 依裝置分批，每批 size = {batchSize}，可用於限流與效能最佳化
         /// </summary>
         private IEnumerable<List<T>> Batch<T>(List<T> source, int batchSize)
         {
@@ -490,6 +553,9 @@ namespace Demo.Infrastructure.Services
                 yield return source.GetRange(i, Math.Min(batchSize, source.Count - i));
         }
 
+        /// <summary>
+        /// 新增推播發送記錄
+        /// </summary>
         private void WriteNotificationLog(NotificationSourceType source, DeviceInfo device, string title, string body, bool status, string msg)
         {
             var now = DateTime.UtcNow;

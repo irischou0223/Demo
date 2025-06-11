@@ -2,12 +2,18 @@
 using Demo.Data.Entities;
 using Demo.Models.DTOs;
 using Microsoft.EntityFrameworkCore;
-using Xunit.Sdk;
 
 namespace Demo.Infrastructure.Services
 {
     /// <summary>
-    /// 裝置註冊/狀態管理服務
+    /// 裝置註冊服務
+    /// 流程說明：
+    /// 1. 驗證產品資訊（ProductInfo）。
+    /// 2. 關閉同 device/product 下舊啟用裝置。
+    /// 3. 新增新裝置資料。
+    /// 4. 新增/維護 使用者資訊(UserInfo) 資料。
+    /// 5. 同步通知設定（新建或複用舊設定，並指向新裝置）。
+    /// 6. 儲存所有異動。
     /// </summary>
     public class RegistrationService
     {
@@ -21,20 +27,22 @@ namespace Demo.Infrastructure.Services
         }
 
         /// <summary>
-        /// 裝置註冊流程：同產品同裝置存在時將原紀錄設為不啟用，並新增新啟用裝置
+        /// 註冊裝置主流程
         /// </summary>
-        public async Task<(DeviceInfo?, string ErrorMessage)> RegisterDeviceAsync(RegisterDeviceRequest req)
+        /// <param name="request">裝置註冊資訊</param>
+        /// <returns>成功：新 DeviceInfo，失敗：null 及錯誤訊息</returns>
+        public async Task<(DeviceInfo?, string ErrorMessage)> RegisterDeviceAsync(RegisterRequestDto req)
         {
             try
             {
-                _logger.LogInformation("開始註冊 DeviceId={DeviceId}, Account={UserAccount}", req.DeviceId, req.UserAccount);
+                _logger.LogInformation("[ RegistrationService ] 開始註冊 DeviceId={DeviceId}, Account={UserAccount}", req.DeviceId, req.UserAccount);
 
                 // 1. 查詢 ProductInfo
                 var product = await _db.ProductInfos.FirstOrDefaultAsync(p => p.FirebaseProjectId == req.FirebaseProjectId);
 
                 if (product == null)
                 {
-                    _logger.LogWarning("找不到對應Product: {FirebaseProjectId}", req.FirebaseProjectId);
+                    _logger.LogWarning("[ RegistrationService ] 找不到對應Product: {FirebaseProjectId}", req.FirebaseProjectId);
                     return (null, "找不到對應的產品資訊。");
                 }
 
@@ -49,7 +57,7 @@ namespace Demo.Infrastructure.Services
                 {
                     oldActiveDeviceInfo.Status = false;
                     oldActiveDeviceInfo.UpdateAtUtc = DateTime.UtcNow;
-                    _logger.LogInformation("舊裝置已設為不啟用 DeviceId={DeviceId}, ProductInfoId={ProductInfoId}, OldDeviceInfoId={OldDeviceInfoId}", req.DeviceId, product.ProductInfoId, oldDeviceInfoId);
+                    _logger.LogInformation("[ RegistrationService ] 舊裝置已設為不啟用 DeviceId={DeviceId}, ProductInfoId={ProductInfoId}, OldDeviceInfoId={OldDeviceInfoId}", req.DeviceId, product.ProductInfoId, oldDeviceInfoId);
                 }
 
                 // 3. 新增新裝置資料
@@ -76,7 +84,27 @@ namespace Demo.Infrastructure.Services
                 };
                 _db.DeviceInfos.Add(newDeviceInfo);
 
-                // 4. 新增/更新通知啟用設定
+                // 4. 新增/維護 使用者資訊UserInfo 資料
+                var userInfoExists = await _db.UserInfos.AnyAsync(u => u.UserAccount == req.UserAccount && u.DeviceInfoId == newDeviceInfoId && u.ProductInfoId == product.ProductInfoId);
+
+                if (!userInfoExists)
+                {
+                    var userInfo = new UserInfo
+                    {
+                        UserAccount = req.UserAccount,
+                        DeviceInfoId = newDeviceInfoId,
+                        ProductInfoId = product.ProductInfoId,
+                        DeviceId = req.DeviceId
+                    };
+                    _db.UserInfos.Add(userInfo);
+                    _logger.LogInformation("[ RegistrationService ] 已新增 UserInfo: UserAccount={UserAccount}, DeviceInfoId={DeviceInfoId}, ProductInfoId={ProductInfoId}", req.UserAccount, newDeviceInfoId, product.ProductInfoId);
+                }
+                else
+                {
+                    _logger.LogInformation("[ RegistrationService ] UserInfo 已存在，不重複新增: UserAccount={UserAccount}, DeviceInfoId={DeviceInfoId}, ProductInfoId={ProductInfoId}", req.UserAccount, newDeviceInfoId, product.ProductInfoId);
+                }
+
+                // 5. 同步通知啟用設定
                 NotificationType? notificationType = null;
                 if (oldDeviceInfoId.HasValue)
                 {
@@ -85,6 +113,7 @@ namespace Demo.Infrastructure.Services
 
                 if (notificationType == null)
                 {
+                    // 新裝置建立新通知設定
                     notificationType = new NotificationType
                     {
                         NotificationTypeId = Guid.NewGuid(),
@@ -95,28 +124,28 @@ namespace Demo.Infrastructure.Services
                         IsLineActive = req.IsLineActive
                     };
                     _db.NotificationTypes.Add(notificationType);
-                    _logger.LogInformation("為新裝置建立新的通知設定。");
+                    _logger.LogInformation("[ RegistrationService ] 為新裝置建立新的通知設定。");
                 }
                 else
                 {
+                    // 複用舊設定，指向新裝置，並更新推播方式
                     notificationType.DeviceInfoId = newDeviceInfoId;
                     notificationType.IsAppActive = req.IsAppActive;
                     notificationType.IsWebActive = req.IsWebActive;
                     notificationType.IsEmailActive = req.IsEmailActive;
                     notificationType.IsLineActive = req.IsLineActive;
-                    _logger.LogInformation("更新舊裝置的通知設定並將其關聯到新裝置（從 {OldDeviceInfoId} 變更為新的 DeviceInfoId）", oldDeviceInfoId);
+                    _logger.LogInformation("[ RegistrationService ] 更新舊裝置的通知設定並將其關聯到新裝置（從 {OldDeviceInfoId} 變更為新的 DeviceInfoId）", oldDeviceInfoId);
                 }
 
                 await _db.SaveChangesAsync();
-
-                _logger.LogInformation("裝置註冊流程完成。 新裝置 ID={NewDeviceInfoId}", newDeviceInfo.DeviceInfoId);
+                _logger.LogInformation("[ RegistrationService ] 裝置註冊流程完成。 新裝置 ID={NewDeviceInfoId}", newDeviceInfo.DeviceInfoId);
 
                 return (newDeviceInfo, null);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "裝置註冊失敗 DeviceId={DeviceId}, Account={UserAccount}", req.DeviceId, req.UserAccount);
-                throw;
+                _logger.LogError(ex, "[ RegistrationService ] 裝置註冊失敗 DeviceId={DeviceId}, Account={UserAccount}", req.DeviceId, req.UserAccount);
+                return (null, "裝置註冊時發生非預期錯誤，請稍後再試。");
             }
         }
     }

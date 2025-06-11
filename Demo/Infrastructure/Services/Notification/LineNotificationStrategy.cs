@@ -1,15 +1,15 @@
-﻿using Demo.Data;
-using Demo.Data.Entities;
-using Microsoft.EntityFrameworkCore;
+﻿using Demo.Data.Entities;
 using Newtonsoft.Json;
-using System.Net.Http.Headers;
 using System.Text;
-using System.Text.Json;
 
 namespace Demo.Infrastructure.Services.Notification
 {
     /// <summary>
     /// LINE 推播策略，使用LINE官方帳號發送通知
+    /// 流程說明：
+    /// 1. 查產品LINE設定
+    /// 2. 彙整Line ID
+    /// 3. 逐一發送
     /// </summary>
     public class LineNotificationStrategy : INotificationStrategy
     {
@@ -27,14 +27,15 @@ namespace Demo.Infrastructure.Services.Notification
         /// <summary>
         /// 發送 LINE 推播（傳入一批裝置，全部同一產品）
         /// </summary>
-        public async Task SendAsync(
-            List<DeviceInfo> devices,
-            string title,
-            string body,
-            Dictionary<string, string> data,
-            NotificationMsgTemplate template)
+        public async Task SendAsync(List<DeviceInfo> devices, string title, string body, Dictionary<string, string> data, NotificationMsgTemplate template)
         {
-            if (devices == null || devices.Count == 0) return;
+            _logger.LogInformation("LineNotificationStrategy.SendAsync 開始, ProductInfoId={ProductInfoId}, DeviceCount={DeviceCount}", devices.FirstOrDefault()?.ProductInfoId, devices.Count);
+
+            if (devices == null || devices.Count == 0)
+            {
+                _logger.LogWarning("LineNotificationStrategy.SendAsync 結束，裝置數量為0");
+                return;
+            }
 
             // 1. 查產品對應 LINE 設定
             var productInfoId = devices.First().ProductInfoId;
@@ -42,6 +43,7 @@ namespace Demo.Infrastructure.Services.Notification
             if (config == null || string.IsNullOrWhiteSpace(config.LineChannelAccessToken))
             {
                 _logger.LogError("LineNotificationStrategy: 無 LINE 設定/token, ProductInfoId={ProductInfoId}", productInfoId);
+                _logger.LogWarning("LineNotificationStrategy.SendAsync 結束，查無 LINE 設定");
                 return;
             }
 
@@ -50,12 +52,12 @@ namespace Demo.Infrastructure.Services.Notification
             if (!lineUserIds.Any())
             {
                 _logger.LogWarning("LineNotificationStrategy: 無有效 LineUserIds, ProductInfoId={ProductInfoId}", productInfoId);
+                _logger.LogWarning("LineNotificationStrategy.SendAsync 結束，無有效 LineId");
                 return;
             }
 
             using var httpClient = new HttpClient();
-            httpClient.DefaultRequestHeaders.Authorization =
-                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", config.LineChannelAccessToken);
+            httpClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", config.LineChannelAccessToken);
 
             // 3. 發送訊息
             foreach (var userId in lineUserIds)
@@ -90,6 +92,7 @@ namespace Demo.Infrastructure.Services.Notification
                     _logger.LogError(ex, "Exception when sending LINE message to {UserId}", userId);
                 }
             }
+            _logger.LogInformation("LineNotificationStrategy.SendAsync 結束, ProductInfoId={ProductInfoId}, DeviceCount={DeviceCount}", productInfoId, devices.Count);
         }
     }
 }

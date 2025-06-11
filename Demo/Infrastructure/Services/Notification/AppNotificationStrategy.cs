@@ -1,12 +1,16 @@
-﻿using Demo.Data;
-using Demo.Data.Entities;
+﻿using Demo.Data.Entities;
 using FirebaseAdmin.Messaging;
-using Microsoft.EntityFrameworkCore;
 
 namespace Demo.Infrastructure.Services.Notification
 {
     /// <summary>
     /// APP 推播策略，透過 Firebase Admin SDK 實作
+    /// 流程說明：
+    /// 1. 查詢對應產品的 FCM 設定
+    /// 2. 準備所有裝置 FCM token
+    /// 3. 構建 MulticastMessage
+    /// 4. 呼叫 Firebase 發送推播
+    /// 5. 記錄失敗 token
     /// </summary>
     public class AppNotificationStrategy : INotificationStrategy
     {

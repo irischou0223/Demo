@@ -5,13 +5,13 @@ using System.ComponentModel.DataAnnotations.Schema;
 namespace Demo.Data.Entities
 {
     [Table("backend_notification_log")]
-    [Comment("後臺管理觸發通知紀錄")]
+    [Comment("後台通知發送紀錄")]
     public class BackendNotificationLog
     {
         [Key]
         [Required]
         [Column("backend_notification_log_id", TypeName = "uuid")]
-        [Comment("後臺管理觸發通知紀錄UID")]
+        [Comment("後台通知發送紀錄UID")]
         public Guid BackendNotificationLogId { get; set; }
 
         [Required]
@@ -45,7 +45,7 @@ namespace Demo.Data.Entities
         public string ResultMsg { get; set; } = null!;
 
         [Required]
-        [Column("retry_count", TypeName = "smallint")]
+        [Column("retry_count", TypeName = "integer")]
         [Comment("重試次數")]
         public int RetryCount { get; set; }
 

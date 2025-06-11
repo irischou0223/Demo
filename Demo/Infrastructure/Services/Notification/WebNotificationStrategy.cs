@@ -1,12 +1,15 @@
-﻿using Demo.Data;
-using Demo.Data.Entities;
+﻿using Demo.Data.Entities;
 using FirebaseAdmin.Messaging;
-using Microsoft.EntityFrameworkCore;
 
 namespace Demo.Infrastructure.Services.Notification
 {
     /// <summary>
-    /// Web 推播策略，與App共用FCM服務
+    /// Web 推播策略，與 App 共用 FCM 服務
+    /// 流程說明：
+    /// 1. 查產品 FCM 設定
+    /// 2. 彙整本批次有效 token（外層已分批，每批至多 500）
+    /// 3. 送出 MulticastMessage
+    /// 4. 記錄發送與失敗 log
     /// </summary>
     public class WebNotificationStrategy : INotificationStrategy
     {
@@ -20,16 +23,18 @@ namespace Demo.Infrastructure.Services.Notification
         }
 
         /// <summary>
-        /// 發送 Web 推播，外層已分批
+        /// 發送 Web 推播（外層已分批，每批 devices 同產品、數量已控管）
         /// </summary>
-        public async Task SendAsync(
-            List<DeviceInfo> devices,
-            string title,
-            string body,
-            Dictionary<string, string> data,
-            NotificationMsgTemplate template)
+        public async Task SendAsync(List<DeviceInfo> devices, string title, string body, Dictionary<string, string> data, NotificationMsgTemplate template)
         {
-            if (devices == null || devices.Count == 0) return;
+            _logger.LogInformation("WebNotificationStrategy.SendAsync 開始, ProductInfoId={ProductInfoId}, DeviceCount={DeviceCount}",
+            devices.FirstOrDefault()?.ProductInfoId, devices.Count);
+
+            if (devices == null || devices.Count == 0)
+            {
+                _logger.LogWarning("WebNotificationStrategy.SendAsync 結束，裝置數量為0");
+                return;
+            }
 
             // 1. 找到產品對應的 FCM 設定
             var productInfoId = devices.First().ProductInfoId;
@@ -37,14 +42,16 @@ namespace Demo.Infrastructure.Services.Notification
             if (config == null)
             {
                 _logger.LogError("WebNotificationStrategy: 查無 FCM 設定, ProductInfoId={ProductInfoId}", productInfoId);
+                _logger.LogWarning("WebNotificationStrategy.SendAsync 結束，查無 FCM 設定");
                 return;
             }
 
-            // 2. 準備所有裝置 FCM token
+            // 2. 彙整本批次 FCM token
             var tokens = devices.Select(d => d.FcmToken).Where(t => !string.IsNullOrWhiteSpace(t)).Distinct().ToList();
             if (!tokens.Any())
             {
                 _logger.LogWarning("WebNotificationStrategy: 無 FCM token, ProductInfoId={ProductInfoId}", productInfoId);
+                _logger.LogWarning("WebNotificationStrategy.SendAsync 結束，無有效 FCM token");
                 return;
             }
 
@@ -52,46 +59,44 @@ namespace Demo.Infrastructure.Services.Notification
             var app = FirebaseAppManager.GetOrCreateApp(productInfoId, config.FcmKey);
             var messaging = FirebaseMessaging.GetMessaging(app);
 
-            const int batchSize = 500;
-            for (int i = 0; i < tokens.Count; i += batchSize)
+            var msg = new MulticastMessage
             {
-                var batchTokens = tokens.Skip(i).Take(batchSize).ToList();
-                var msg = new MulticastMessage
+                Tokens = tokens,
+                Notification = new FirebaseAdmin.Messaging.Notification
                 {
-                    Tokens = batchTokens,
-                    Notification = new FirebaseAdmin.Messaging.Notification
+                    Title = title,
+                    Body = body
+                },
+                Data = data ?? new Dictionary<string, string>(),
+                Webpush = new WebpushConfig
+                {
+                    Notification = new WebpushNotification
                     {
-                        Title = title,
-                        Body = body
+                        Icon = template?.Icon
                     },
-                    Data = data ?? new Dictionary<string, string>(),
-                    Webpush = new WebpushConfig
+                    FcmOptions = new WebpushFcmOptions
                     {
-                        Notification = new WebpushNotification
-                        {
-                            Icon = template?.Icon
-                        },
-                        FcmOptions = new WebpushFcmOptions
-                        {
-                            Link = template?.ClickActionWeb
-                        }
+                        Link = template?.ClickActionWeb
                     }
-                };
-                var response = await messaging.SendEachForMulticastAsync(msg);
-                _logger.LogInformation("WebNotificationStrategy: Sent {Count} tokens for ProductInfoId={ProductInfoId}, Success={Success}, Failure={Failure}",
-                    batchTokens.Count, productInfoId, response.SuccessCount, response.FailureCount);
-                if (response.FailureCount > 0)
+                }
+            };
+
+            var response = await messaging.SendEachForMulticastAsync(msg);
+            _logger.LogInformation("WebNotificationStrategy: Sent {Count} tokens for ProductInfoId={ProductInfoId}, Success={Success}, Failure={Failure}",
+                tokens.Count, productInfoId, response.SuccessCount, response.FailureCount);
+
+            if (response.FailureCount > 0)
+            {
+                for (int j = 0; j < response.Responses.Count; j++)
                 {
-                    for (int j = 0; j < response.Responses.Count; j++)
+                    if (!response.Responses[j].IsSuccess)
                     {
-                        if (!response.Responses[j].IsSuccess)
-                        {
-                            _logger.LogWarning("WebNotificationStrategy: Failed token {Token} for ProductInfoId={ProductInfoId}, error: {Error}",
-                                batchTokens[j], productInfoId, response.Responses[j].Exception?.Message);
-                        }
+                        _logger.LogWarning("WebNotificationStrategy: Failed token {Token} for ProductInfoId={ProductInfoId}, error: {Error}",
+                            tokens[j], productInfoId, response.Responses[j].Exception?.Message);
                     }
                 }
             }
+            _logger.LogInformation("WebNotificationStrategy.SendAsync 結束, ProductInfoId={ProductInfoId}, DeviceCount={DeviceCount}", productInfoId, devices.Count);
         }
     }
 }

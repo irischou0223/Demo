@@ -1,4 +1,5 @@
-﻿using Microsoft.EntityFrameworkCore;
+﻿using Demo.Enum;
+using Microsoft.EntityFrameworkCore;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
@@ -24,9 +25,9 @@ namespace Demo.Data.Entities
         public string Title { get; set; } = null!;
 
         [Required]
-        [Column("notification_scope", TypeName = "smallint")]
-        [Comment("通知範圍 single / group / all")]
-        public short NotificationScope { get; set; }
+        [Column("notification_scope", TypeName = "integer")]
+        [Comment("通知範圍  1=single, 2=group, 3=all")]
+        public NotificationScopeType NotificationScope { get; set; }
 
         [Column("notification_target", TypeName = "jsonb")]
         [Comment("通知裝置")]
@@ -37,9 +38,9 @@ namespace Demo.Data.Entities
         public List<string>? NotificationGroup { get; set; } = null;
 
         [Required]
-        [Column("schedule_type", TypeName = "smallint")]
-        [Comment("排程頻率  immediate / daily / monthly / yearly / custom")]
-        public short ScheduleType { get; set; }
+        [Column("schedule_frequency_type", TypeName = "integer")]
+        [Comment("排程頻率  0=immediate, 1=daily, 2=monthly, 3=yearly, 9=custom")]
+        public ScheduleFrequencyType ScheduleFrequencyType { get; set; }
 
         [Required]
         [Column("schedule_time", TypeName = "timestamp with time zone")]
@@ -47,10 +48,9 @@ namespace Demo.Data.Entities
         public DateTime ScheduleTime { get; set; }
 
         [Required]
-        [StringLength(20)]
-        [Column("notification_type", TypeName = "varchar")]
+        [Column("notification_channel_type", TypeName = "integer")]
         [Comment("通知類型 ")]
-        public string NotificationType { get; set; } = null!;
+        public NotificationChannelType NotificationChannelType { get; set; }
 
         [Required]
         [Column("is_enabled", TypeName = "boolean")]
@@ -59,7 +59,7 @@ namespace Demo.Data.Entities
 
         [Column("next_run_at_utc", TypeName = "timestamp with time zone")]
         [Comment("下次執行時間")]
-        public DateTime? NextRunAtUtc { get; set; } = null;
+        public DateTime? NextRunAtUtc { get; set; }
 
         [Required]
         [Column("create_at_utc", TypeName = "timestamp with time zone")]
@@ -72,6 +72,6 @@ namespace Demo.Data.Entities
 
         [Column("cancelled_at_utc", TypeName = "timestamp with time zone")]
         [Comment("取消時間")]
-        public DateTime? CancelledAtUtc { get; set; } = null;
+        public DateTime? CancelledAtUtc { get; set; }
     }
 }

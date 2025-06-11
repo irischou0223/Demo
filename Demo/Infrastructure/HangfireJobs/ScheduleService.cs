@@ -3,11 +3,17 @@ using Demo.Data.Entities;
 using Demo.Enum;
 using Demo.Infrastructure.Services;
 using Demo.Models.DTOs;
-using Hangfire;
 using Microsoft.EntityFrameworkCore;
+using System.Diagnostics;
 
 namespace Demo.Infrastructure.Hangfire
 {
+    /// <summary>
+    /// 通知排程服務（ScheduleService）
+    /// ---
+    /// 依據排程規則，定時批次執行通知推播，
+    /// 並於每筆任務執行後記錄結果與下次執行時間。
+    /// </summary>
     public class ScheduleService
     {
         private readonly DemoDbContext _db;
@@ -29,6 +35,10 @@ namespace Demo.Infrastructure.Hangfire
         /// </summary>
         public async Task ExecuteScheduledJobsAsync()
         {
+            _logger.LogInformation("[ ScheduleService ] ExecuteScheduledJobsAsync 開始");
+            var sw = Stopwatch.StartNew();
+            int totalProcessed = 0;
+
             try
             {
                 var now = DateTime.UtcNow;
@@ -38,16 +48,20 @@ namespace Demo.Infrastructure.Hangfire
                     .Where(j => j.IsEnabled && j.NextRunAtUtc != null && j.NextRunAtUtc <= now)
                     .ToListAsync();
 
+                _logger.LogInformation("[ ScheduleService ] 待執行排程數量: {JobCount}", jobs.Count);
+
                 foreach (var job in jobs)
                 {
                     try
                     {
+                        _logger.LogInformation("[ ScheduleService ] 執行排程 JobId={JobId}", job.NotificationScheduledJobId);
+
                         // 2. 查模板
                         var template = await _db.NotificationMsgTemplates
                             .FirstOrDefaultAsync(t => t.NotificationMsgTemplateId == job.NotificationMsgTemplateId);
                         if (template == null)
                         {
-                            _logger.LogWarning("找不到 NotificationMsgTemplate: {TemplateId}", job.NotificationMsgTemplateId);
+                            _logger.LogWarning("[ ScheduleService ] 找不到 NotificationMsgTemplate: {TemplateId}", job.NotificationMsgTemplateId);
                             continue;
                         }
 
@@ -55,7 +69,7 @@ namespace Demo.Infrastructure.Hangfire
                         var codeInfo = await _db.CodeInfos.FirstOrDefaultAsync(c => c.CodeInfoId == template.CodeInfoId);
                         if (codeInfo == null)
                         {
-                            _logger.LogWarning("找不到 CodeInfo: {CodeInfoId}", template.CodeInfoId);
+                            _logger.LogWarning("[ ScheduleService ] 找不到 CodeInfo: {CodeInfoId}", template.CodeInfoId);
                             continue;
                         }
 
@@ -66,19 +80,19 @@ namespace Demo.Infrastructure.Hangfire
                         var templateData = templateDataList.ToDictionary(d => d.Key, d => d.Value);
 
                         // 5. 決定推播目標
-                        List<string> deviceIds = null;
+                        List<Guid> deviceInfoIds = null;
                         string notificationGroup = null;
                         switch (job.NotificationScope)
                         {
-                            case 1: // 單一裝置
+                            case NotificationScopeType.Single: // 單一裝置
                                 if (job.NotificationTarget != null && job.NotificationTarget.Any())
-                                    deviceIds = job.NotificationTarget.Select(g => g.ToString()).ToList();
+                                    deviceInfoIds = job.NotificationTarget.Select(g => g).ToList();
                                 break;
-                            case 2: // 群組
+                            case NotificationScopeType.Group: // 群組
                                 if (job.NotificationGroup != null && job.NotificationGroup.Any())
                                     notificationGroup = job.NotificationGroup.First();
                                 break;
-                            case 3: // 全部
+                            case NotificationScopeType.All: // 全部
                             default:
                                 // 不指定目標，Service 會自動發給全體
                                 break;
@@ -87,7 +101,7 @@ namespace Demo.Infrastructure.Hangfire
                         // 6. 組裝推播請求
                         var request = new NotificationRequestDto
                         {
-                            DeviceIds = deviceIds,
+                            DeviceInfoIds = deviceInfoIds,
                             NotificationGroup = notificationGroup,
                             NotificationMsgTemplateId = template.NotificationMsgTemplateId,
                             Title = codeInfo.Title,
@@ -104,7 +118,7 @@ namespace Demo.Infrastructure.Hangfire
                         {
                             JobNotificationLogId = Guid.NewGuid(),
                             NotificationScheduledJobId = job.NotificationScheduledJobId,
-                            DeviceInfoId = deviceIds != null && deviceIds.Any() ? Guid.Parse(deviceIds.First()) : Guid.Empty,
+                            DeviceInfoId = deviceInfoIds != null && deviceInfoIds.Any() ? deviceInfoIds.First() : Guid.Empty,
                             Gw = template.Gw,
                             Title = codeInfo.Title ?? "",
                             Body = codeInfo.Body ?? "",
@@ -117,45 +131,50 @@ namespace Demo.Infrastructure.Hangfire
 
                         if (!result.IsSuccess)
                         {
-                            _logger.LogWarning("排程推播失敗: JobId={JobId}, Msg={Msg}", job.NotificationScheduledJobId, result.Message);
+                            _logger.LogWarning("[ ScheduleService ] 排程推播失敗: JobId={JobId}, Msg={Msg}", job.NotificationScheduledJobId, result.Message);
                         }
                         else
                         {
-                            _logger.LogInformation("排程推播成功: JobId={JobId}, Devices={Count}", job.NotificationScheduledJobId, deviceIds?.Count ?? 0);
+                            _logger.LogInformation("[ ScheduleService ] 排程推播成功: JobId={JobId}, Devices={Count}", job.NotificationScheduledJobId, deviceInfoIds?.Count ?? 0);
                         }
 
                         // 9. 更新下次執行時間
-                        job.NextRunAtUtc = CalcNextRunTime(job.ScheduleType, job.NextRunAtUtc ?? job.ScheduleTime);
+                        job.NextRunAtUtc = CalcNextRunTime(job.ScheduleFrequencyType, job.NextRunAtUtc ?? job.ScheduleTime);
                         _db.NotificationScheduledJobs.Update(job);
+                        totalProcessed++;
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogError(ex, "單一排程推播任務執行失敗 JobId={JobId}", job.NotificationScheduledJobId);
+                        _logger.LogError(ex, "[ ScheduleService ] 單一排程推播任務執行失敗 JobId={JobId}", job.NotificationScheduledJobId);
                     }
                 }
                 await _db.SaveChangesAsync();
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "ExecuteScheduledJobsAsync 全域例外");
+                _logger.LogError(ex, "[ ScheduleService ] ExecuteScheduledJobsAsync 全域例外");
+            }
+            finally
+            {
+                sw.Stop();
+                _logger.LogInformation("[ ScheduleService ] ExecuteScheduledJobsAsync 結束, ProcessedJobCount={Count}, 耗時={ElapsedMs}ms", totalProcessed, sw.ElapsedMilliseconds);
             }
         }
 
         /// <summary>
         /// 計算下次執行時間
         /// </summary>
-        private DateTime? CalcNextRunTime(short scheduleType, DateTime from)
+        private DateTime? CalcNextRunTime(ScheduleFrequencyType scheduleType, DateTime from)
         {
-            // scheduleType: 0=immediate, 1=daily, 2=monthly, 3=yearly, 4=custom
             switch (scheduleType)
             {
-                case 0: // 立即
+                case ScheduleFrequencyType.Immediate: // 立即
                     return null;
-                case 1: // 每日
+                case ScheduleFrequencyType.Daily: // 每日
                     return from.AddDays(1);
-                case 2: // 每月
+                case ScheduleFrequencyType.Monthly: // 每月
                     return from.AddMonths(1);
-                case 3: // 每年
+                case ScheduleFrequencyType.Yearly: // 每年
                     return from.AddYears(1);
                 default:
                     return from.AddDays(1); // 其他可依需求擴充

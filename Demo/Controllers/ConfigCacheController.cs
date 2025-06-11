@@ -4,9 +4,18 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace Demo.Controllers
 {
+    /// <summary>
+    /// NotificationConfig 快取管理 API Controller
+    /// ---
+    /// 提供管理 NotificationConfig 快取（查詢、失效、數量監控等）之 REST 介面。
+    /// 流程說明：
+    /// 1. 支援快取查詢、失效、批次失效、全清除、快取數量查詢等操作
+    /// 2. 操作皆詳盡記錄日誌，權限需 AdminPolicy
+    /// 3. 例外皆統一格式回應
+    /// </summary>
     [ApiController]
     [Route("api/config-cache")]
-    [Authorize(Policy = "AdminPolicy")] // 啟用授權
+    [Authorize(Policy = "AdminPolicy")]
     public class ConfigCacheController : ControllerBase
     {
         private readonly ConfigCacheService _configCache;
@@ -20,16 +29,16 @@ namespace Demo.Controllers
 
         /// <summary>
         /// 取得指定產品的 NotificationConfig
-        /// 先嘗試從快取中讀取配置。如果快取中沒有，則會從資料庫或其他來源載入並存入快取。
+        /// 先查快取，未命中則自資料庫載入。
         /// </summary>
         [HttpGet("notification-config")]
         public async Task<IActionResult> GetNotificationConfig([FromQuery] Guid productInfoId)
         {
-            _logger.LogInformation("Received request to get notification config for ProductInfoId: {ProductInfoId}", productInfoId);
+            _logger.LogInformation("[ ConfigCacheAPI ] 收到查詢通知配置請求，ProductInfoId: {ProductInfoId}", productInfoId);
 
             if (productInfoId == Guid.Empty)
             {
-                _logger.LogWarning("Invalid ProductInfoId received: {ProductInfoId} (Guid.Empty)", productInfoId);
+                _logger.LogWarning("[ ConfigCacheAPI ] 查詢通知配置，收到無效 ProductInfoId: {ProductInfoId} (Guid.Empty)", productInfoId);
                 return BadRequest("productInfoId is required and cannot be empty.");
             }
 
@@ -38,59 +47,57 @@ namespace Demo.Controllers
                 var result = await _configCache.GetNotificationConfigAsync(productInfoId);
                 if (result == null)
                 {
-                    _logger.LogInformation("Notification config not found for ProductInfoId: {ProductInfoId}", productInfoId);
+                    _logger.LogInformation("[ ConfigCacheAPI ] 查詢通知配置未找到，ProductInfoId: {ProductInfoId}", productInfoId);
                     return NotFound();
                 }
-                _logger.LogInformation("Successfully retrieved notification config for ProductInfoId: {ProductInfoId}", productInfoId);
+                _logger.LogInformation("[ ConfigCacheAPI ] 查詢通知配置成功，ProductInfoId: {ProductInfoId}", productInfoId);
                 return Ok(result);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error getting notification config for ProductInfoId: {ProductInfoId}", productInfoId);
+                _logger.LogError(ex, "[ ConfigCacheAPI ] 查詢通知配置發生例外，ProductInfoId: {ProductInfoId}", productInfoId);
                 return StatusCode(StatusCodes.Status500InternalServerError, "An error occurred while retrieving notification config.");
             }
         }
 
         /// <summary>
         /// 使指定產品的 NotificationConfig 快取失效
-        /// 從快取中移除特定 productInfoId 的通知配置，確保下次查詢時會重新載入最新的資料。
         /// </summary>
         [HttpPost("invalidate-notification-config")]
         public async Task<IActionResult> InvalidateNotificationConfig([FromQuery] Guid productInfoId)
         {
-            _logger.LogInformation("Received request to invalidate notification config for ProductInfoId: {ProductInfoId}", productInfoId);
+            _logger.LogInformation("[ ConfigCacheAPI ] 收到失效通知配置快取請求，ProductInfoId: {ProductInfoId}", productInfoId);
 
             if (productInfoId == Guid.Empty)
             {
-                _logger.LogWarning("Invalid ProductInfoId received for invalidation: {ProductInfoId} (Guid.Empty)", productInfoId);
+                _logger.LogWarning("[ ConfigCacheAPI ] 失效快取請求收到無效 ProductInfoId: {ProductInfoId} (Guid.Empty)", productInfoId);
                 return BadRequest("productInfoId is required and cannot be empty.");
             }
 
             try
             {
                 await _configCache.InvalidateNotificationConfigCacheAsync(productInfoId);
-                _logger.LogInformation("Successfully invalidated cache for ProductInfoId: {ProductInfoId}", productInfoId);
-                return Ok(new { message = "Cache invalidated." }); // 統一 JSON 響應格式
+                _logger.LogInformation("[ ConfigCacheAPI ] 快取失效成功，ProductInfoId: {ProductInfoId}", productInfoId);
+                return Ok(new { message = "Cache invalidated." });
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error invalidating cache for ProductInfoId: {ProductInfoId}", productInfoId);
+                _logger.LogError(ex, "[ ConfigCacheAPI ] 失效快取時發生例外，ProductInfoId: {ProductInfoId}", productInfoId);
                 return StatusCode(StatusCodes.Status500InternalServerError, "An error occurred while invalidating cache.");
             }
         }
 
         /// <summary>
-        /// 查詢指定產品的 NotificationConfig 快取內容（僅查快取，不查DB）
-        /// 用於調試或監控目的，它只會檢查快取中是否存在該配置，而不會觸發從資料庫載入。
+        /// 查詢指定產品的 NotificationConfig 快取內容（僅查快取）
         /// </summary>
         [HttpGet("peek-notification-config")]
         public async Task<IActionResult> PeekNotificationConfig([FromQuery] Guid productInfoId)
         {
-            _logger.LogInformation("Received request to peek notification config for ProductInfoId: {ProductInfoId}", productInfoId);
+            _logger.LogInformation("[ ConfigCacheAPI ] 收到快取 peek 請求，ProductInfoId: {ProductInfoId}", productInfoId);
 
             if (productInfoId == Guid.Empty)
             {
-                _logger.LogWarning("Invalid ProductInfoId received for peeking: {ProductInfoId} (Guid.Empty)", productInfoId);
+                _logger.LogWarning("[ ConfigCacheAPI ] peek 快取請求收到無效 ProductInfoId: {ProductInfoId} (Guid.Empty)", productInfoId);
                 return BadRequest("productInfoId is required and cannot be empty.");
             }
 
@@ -99,38 +106,35 @@ namespace Demo.Controllers
                 var cacheInfo = await _configCache.PeekCacheAsync(productInfoId);
                 if (cacheInfo == null)
                 {
-                    _logger.LogInformation("No cache found for ProductInfoId: {ProductInfoId}", productInfoId);
-                    return NotFound(new { message = "No cache found." }); // 統一 JSON 響應格式
+                    _logger.LogInformation("[ ConfigCacheAPI ] 快取中無資料，ProductInfoId: {ProductInfoId}", productInfoId);
+                    return NotFound(new { message = "No cache found." });
                 }
-                _logger.LogInformation("Successfully peeked cache for ProductInfoId: {ProductInfoId}", productInfoId);
+                _logger.LogInformation("[ ConfigCacheAPI ] peek 快取成功，ProductInfoId: {ProductInfoId}", productInfoId);
                 return Ok(cacheInfo);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error peeking cache for ProductInfoId: {ProductInfoId}", productInfoId);
+                _logger.LogError(ex, "[ ConfigCacheAPI ] peek 快取發生例外，ProductInfoId: {ProductInfoId}", productInfoId);
                 return StatusCode(StatusCodes.Status500InternalServerError, "An error occurred while peeking cache.");
             }
         }
 
         /// <summary>
         /// 批次清除多個產品的 NotificationConfig 快取
-        /// 允許一次性使多個產品的通知配置快取失效。
         /// </summary>
         [HttpPost("batch-invalidate-notification-config")]
         public async Task<IActionResult> BatchInvalidateNotificationConfig([FromBody] List<Guid> productInfoIds)
         {
-            _logger.LogInformation("Received request to batch invalidate notification config for {Count} products.", productInfoIds?.Count ?? 0);
+            _logger.LogInformation("[ ConfigCacheAPI ] 收到批次失效快取請求，產品數: {Count}", productInfoIds?.Count ?? 0);
 
             if (productInfoIds == null || !productInfoIds.Any())
             {
-                _logger.LogWarning("Batch invalidation request received with no productInfoIds.");
+                _logger.LogWarning("[ ConfigCacheAPI ] 批次失效請求無 ProductInfoIds。");
                 return BadRequest("productInfoIds is required and cannot be empty.");
             }
-
-            // 檢查列表中是否有無效的 Guid
             if (productInfoIds.Any(id => id == Guid.Empty))
             {
-                _logger.LogWarning("Batch invalidation request contains invalid ProductInfoIds (Guid.Empty).");
+                _logger.LogWarning("[ ConfigCacheAPI ] 批次失效請求含無效 ProductInfoId (Guid.Empty)。");
                 return BadRequest("Some productInfoIds in the list are invalid (Guid.Empty).");
             }
 
@@ -138,62 +142,57 @@ namespace Demo.Controllers
             {
                 foreach (var id in productInfoIds)
                 {
-                    // 注意：這裡如果某個單獨的失效操作失敗，整個批次操作仍然會繼續，
-                    // 且最終返回成功。如果需要更嚴格的 "all or nothing" 語義，
-                    // 則需要收集每個操作的結果並統一判斷。
                     await _configCache.InvalidateNotificationConfigCacheAsync(id);
-                    _logger.LogDebug("Invalidated cache for individual ProductInfoId: {ProductInfoId}", id);
+                    _logger.LogDebug("[ ConfigCacheAPI ] 已失效單一 ProductInfoId: {ProductInfoId}", id);
                 }
-                _logger.LogInformation("Successfully batch invalidated cache for {Count} products.", productInfoIds.Count);
-                return Ok(new { message = "Batch cache invalidated." }); // 統一 JSON 響應格式
+                _logger.LogInformation("[ ConfigCacheAPI ] 批次失效快取成功，數量: {Count}", productInfoIds.Count);
+                return Ok(new { message = "Batch cache invalidated." });
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error during batch invalidation of cache for {Count} products.", productInfoIds.Count);
+                _logger.LogError(ex, "[ ConfigCacheAPI ] 批次快取失效發生例外，數量: {Count}", productInfoIds.Count);
                 return StatusCode(StatusCodes.Status500InternalServerError, "An error occurred during batch cache invalidation.");
             }
         }
 
         /// <summary>
         /// 清除全部 NotificationConfig Redis 快取
-        /// 清除所有與 NotificationConfig 相關的快取項目。通常用於系統維護或強制全面刷新快取。
         /// </summary>
         [HttpPost("invalidate-all-notification-config")]
         public async Task<IActionResult> InvalidateAllNotificationConfig()
         {
-            _logger.LogWarning("Received request to invalidate ALL notification config cache."); // 警告級日誌
+            _logger.LogWarning("[ ConfigCacheAPI ] 收到全清除 NotificationConfig 快取請求！");
 
             try
             {
                 await _configCache.InvalidateAllNotificationConfigCacheAsync();
-                _logger.LogInformation("Successfully invalidated all notification config cache.");
-                return Ok(new { message = "All notification config cache invalidated." }); // 統一 JSON 響應格式
+                _logger.LogInformation("[ ConfigCacheAPI ] 全部快取已清除。");
+                return Ok(new { message = "All notification config cache invalidated." });
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error invalidating all notification config cache.");
+                _logger.LogError(ex, "[ ConfigCacheAPI ] 全清除快取發生例外。");
                 return StatusCode(StatusCodes.Status500InternalServerError, "An error occurred while invalidating all cache.");
             }
         }
 
         /// <summary>
         /// 查詢 Redis 目前 NotificationConfig 快取數量
-        /// 用於監控和了解快取中當前有多少個 NotificationConfig 項目。
         /// </summary>
         [HttpGet("notification-config-cache-count")]
         public async Task<IActionResult> GetNotificationConfigCacheCount()
         {
-            _logger.LogInformation("Received request to get notification config cache count.");
+            _logger.LogInformation("[ ConfigCacheAPI ] 收到查詢快取數量請求。");
 
             try
             {
                 var count = await _configCache.GetNotificationConfigCacheCountAsync();
-                _logger.LogInformation("Retrieved notification config cache count: {Count}", count);
-                return Ok(new { count = count }); // 返回包含計數的匿名物件
+                _logger.LogInformation("[ ConfigCacheAPI ] 目前快取數量: {Count}", count);
+                return Ok(new { count });
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error getting notification config cache count.");
+                _logger.LogError(ex, "[ ConfigCacheAPI ] 查詢快取數量發生例外。");
                 return StatusCode(StatusCodes.Status500InternalServerError, "An error occurred while getting cache count.");
             }
         }
