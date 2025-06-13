@@ -35,7 +35,7 @@ namespace Demo.Infrastructure.Hangfire
         /// </summary>
         public async Task ExecuteScheduledJobsAsync()
         {
-            _logger.LogInformation("[ ScheduleService ] ExecuteScheduledJobsAsync 開始");
+            _logger.LogInformation("Scheduled notification job execution started.");
             var sw = Stopwatch.StartNew();
             int totalProcessed = 0;
 
@@ -48,20 +48,20 @@ namespace Demo.Infrastructure.Hangfire
                     .Where(j => j.IsEnabled && j.NextRunAtUtc != null && j.NextRunAtUtc <= now)
                     .ToListAsync();
 
-                _logger.LogInformation("[ ScheduleService ] 待執行排程數量: {JobCount}", jobs.Count);
+                _logger.LogInformation("Number of jobs to execute: {JobCount}", jobs.Count);
 
                 foreach (var job in jobs)
                 {
                     try
                     {
-                        _logger.LogInformation("[ ScheduleService ] 執行排程 JobId={JobId}", job.NotificationScheduledJobId);
+                        _logger.LogInformation("Executing scheduled job. JobId={JobId}", job.NotificationScheduledJobId);
 
                         // 2. 查模板
                         var template = await _db.NotificationMsgTemplates
                             .FirstOrDefaultAsync(t => t.NotificationMsgTemplateId == job.NotificationMsgTemplateId);
                         if (template == null)
                         {
-                            _logger.LogWarning("[ ScheduleService ] 找不到 NotificationMsgTemplate: {TemplateId}", job.NotificationMsgTemplateId);
+                            _logger.LogWarning("NotificationMsgTemplate not found. TemplateId={TemplateId}", job.NotificationMsgTemplateId);
                             continue;
                         }
 
@@ -69,7 +69,7 @@ namespace Demo.Infrastructure.Hangfire
                         var codeInfo = await _db.CodeInfos.FirstOrDefaultAsync(c => c.CodeInfoId == template.CodeInfoId);
                         if (codeInfo == null)
                         {
-                            _logger.LogWarning("[ ScheduleService ] 找不到 CodeInfo: {CodeInfoId}", template.CodeInfoId);
+                            _logger.LogWarning("CodeInfo not found. CodeInfoId={CodeInfoId}", template.CodeInfoId);
                             continue;
                         }
 
@@ -101,41 +101,26 @@ namespace Demo.Infrastructure.Hangfire
                         // 6. 組裝推播請求
                         var request = new NotificationRequestDto
                         {
+                            Source = NotificationSourceType.Job,
                             DeviceInfoIds = deviceInfoIds,
                             NotificationGroup = notificationGroup,
+                            Lang = codeInfo.Lang,
+                            NotificationScheduledJobId = job.NotificationScheduledJobId,
                             NotificationMsgTemplateId = template.NotificationMsgTemplateId,
                             Title = codeInfo.Title,
-                            Body = codeInfo.Body,
-                            Lang = codeInfo.Lang,
-                            Source = NotificationSourceType.Job
+                            Body = codeInfo.Body
                         };
 
                         // 7. 呼叫主推播服務（自動分流/分批、支援 queue）
-                        var result = await _notificationService.NotifyAsync(request, request.Source);
-
-                        // 8. 寫入排程通知Log
-                        var log = new JobNotificationLog
-                        {
-                            JobNotificationLogId = Guid.NewGuid(),
-                            NotificationScheduledJobId = job.NotificationScheduledJobId,
-                            DeviceInfoId = deviceInfoIds != null && deviceInfoIds.Any() ? deviceInfoIds.First() : Guid.Empty,
-                            Gw = template.Gw,
-                            Title = codeInfo.Title ?? "",
-                            Body = codeInfo.Body ?? "",
-                            NotificationStatus = result.IsSuccess,
-                            ResultMsg = result.Message,
-                            RetryCount = 0,
-                            CreateAtUtc = DateTime.UtcNow
-                        };
-                        _db.JobNotificationLogs.Add(log);
+                        var result = await _notificationService.NotifyAsync(request);
 
                         if (!result.IsSuccess)
                         {
-                            _logger.LogWarning("[ ScheduleService ] 排程推播失敗: JobId={JobId}, Msg={Msg}", job.NotificationScheduledJobId, result.Message);
+                            _logger.LogWarning("Scheduled notification failed. JobId={JobId}, Message={Message}", job.NotificationScheduledJobId, result.Message);
                         }
                         else
                         {
-                            _logger.LogInformation("[ ScheduleService ] 排程推播成功: JobId={JobId}, Devices={Count}", job.NotificationScheduledJobId, deviceInfoIds?.Count ?? 0);
+                            _logger.LogInformation("Scheduled notification succeeded. JobId={JobId}, DeviceCount={DeviceCount}", job.NotificationScheduledJobId, deviceInfoIds?.Count ?? 0);
                         }
 
                         // 9. 更新下次執行時間
@@ -145,19 +130,19 @@ namespace Demo.Infrastructure.Hangfire
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogError(ex, "[ ScheduleService ] 單一排程推播任務執行失敗 JobId={JobId}", job.NotificationScheduledJobId);
+                        _logger.LogError(ex, "Exception in single scheduled job. JobId={JobId}", job.NotificationScheduledJobId);
                     }
                 }
                 await _db.SaveChangesAsync();
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "[ ScheduleService ] ExecuteScheduledJobsAsync 全域例外");
+                _logger.LogError(ex, "Exception in ExecuteScheduledJobsAsync");
             }
             finally
             {
                 sw.Stop();
-                _logger.LogInformation("[ ScheduleService ] ExecuteScheduledJobsAsync 結束, ProcessedJobCount={Count}, 耗時={ElapsedMs}ms", totalProcessed, sw.ElapsedMilliseconds);
+                _logger.LogInformation("End ExecuteScheduledJobsAsync. ProcessedJobCount={Count}, ElapsedMs={ElapsedMs}", totalProcessed, sw.ElapsedMilliseconds);
             }
         }
 

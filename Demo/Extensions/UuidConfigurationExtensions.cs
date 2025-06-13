@@ -31,23 +31,29 @@ namespace Demo.Extensions
                 .HasDefaultValueSql("gen_random_uuid()")
                 .ValueGeneratedOnAdd();
 
-            // ExternalNotificationLog
-            modelBuilder.Entity<ExternalNotificationLog>()
-                .Property(d => d.ExternalNotificationLogId)
+            //NotificationLog
+            modelBuilder.Entity<NotificationLog>()
+                .Property(d => d.NotificationLogId)
                 .HasDefaultValueSql("gen_random_uuid()")
                 .ValueGeneratedOnAdd();
 
-            // BackendNotificationLog
-            modelBuilder.Entity<BackendNotificationLog>()
-                .Property(d => d.BackendNotificationLogId)
-                .HasDefaultValueSql("gen_random_uuid()")
-                .ValueGeneratedOnAdd();
+            //// ExternalNotificationLog
+            //modelBuilder.Entity<ExternalNotificationLog>()
+            //    .Property(d => d.ExternalNotificationLogId)
+            //    .HasDefaultValueSql("gen_random_uuid()")
+            //    .ValueGeneratedOnAdd();
 
-            // JobNotificationLog
-            modelBuilder.Entity<JobNotificationLog>()
-                .Property(d => d.JobNotificationLogId)
-                .HasDefaultValueSql("gen_random_uuid()")
-                .ValueGeneratedOnAdd();
+            //// BackendNotificationLog
+            //modelBuilder.Entity<BackendNotificationLog>()
+            //    .Property(d => d.BackendNotificationLogId)
+            //    .HasDefaultValueSql("gen_random_uuid()")
+            //    .ValueGeneratedOnAdd();
+
+            //// JobNotificationLog
+            //modelBuilder.Entity<JobNotificationLog>()
+            //    .Property(d => d.JobNotificationLogId)
+            //    .HasDefaultValueSql("gen_random_uuid()")
+            //    .ValueGeneratedOnAdd();
 
             // CodeInfo
             modelBuilder.Entity<CodeInfo>()

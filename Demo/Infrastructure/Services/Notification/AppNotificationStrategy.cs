@@ -33,14 +33,18 @@ namespace Demo.Infrastructure.Services.Notification
             Dictionary<string, string> data,
             NotificationMsgTemplate template)
         {
-            if (devices == null || devices.Count == 0) return;
+            if (devices == null || devices.Count == 0)
+            {
+                _logger.LogWarning("App notification send aborted: no devices specified.");
+                return;
+            }
 
             // 1. 找到對應產品的 FCM 設定
             var productInfoId = devices.First().ProductInfoId;
-            var config = await _configCache.GetNotificationConfigAsync(productInfoId);
+            var config = await _configCache.GetNotificationActionConfigAsync(productInfoId);
             if (config == null)
             {
-                _logger.LogError("AppNotificationStrategy: 查無 FCM 設定, ProductInfoId={ProductInfoId}", productInfoId);
+                _logger.LogError("App notification failed: FCM config not found. ProductInfoId={ProductInfoId}", productInfoId);
                 return;
             }
 
@@ -48,7 +52,7 @@ namespace Demo.Infrastructure.Services.Notification
             var tokens = devices.Select(d => d.FcmToken).Where(t => !string.IsNullOrWhiteSpace(t)).Distinct().ToList();
             if (!tokens.Any())
             {
-                _logger.LogWarning("AppNotificationStrategy: 無 FCM token, ProductInfoId={ProductInfoId}", productInfoId);
+                _logger.LogWarning("App notification send aborted: no valid FCM token. ProductInfoId={ProductInfoId}", productInfoId);
                 return;
             }
 
@@ -86,8 +90,8 @@ namespace Demo.Infrastructure.Services.Notification
             // 4. 發送訊息給所有 token
             var response = await messaging.SendEachForMulticastAsync(msg);
 
-            _logger.LogInformation("AppNotificationStrategy: Sent {Count} tokens for ProductInfoId={ProductInfoId}, Success={Success}, Failure={Failure}",
-                tokens.Count, productInfoId, response.SuccessCount, response.FailureCount);
+            _logger.LogInformation("App notifications sent. ProductInfoId={ProductInfoId}, TokenCount={TokenCount}, Success={Success}, Failure={Failure}",
+                productInfoId, tokens.Count, response.SuccessCount, response.FailureCount);
 
             // 5. 記錄失敗 token
             if (response.FailureCount > 0)
@@ -96,8 +100,8 @@ namespace Demo.Infrastructure.Services.Notification
                 {
                     if (!response.Responses[j].IsSuccess)
                     {
-                        _logger.LogWarning("AppNotificationStrategy: Failed token {Token} for ProductInfoId={ProductInfoId}, error: {Error}",
-                            tokens[j], productInfoId, response.Responses[j].Exception?.Message);
+                        _logger.LogWarning("App notification failed for token. ProductInfoId={ProductInfoId}, Token={Token}, Error={Error}",
+                            productInfoId, tokens[j], response.Responses[j].Exception?.Message);
                     }
                 }
             }

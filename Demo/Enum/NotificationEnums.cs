@@ -45,17 +45,20 @@ namespace Demo.Enum
         /// <summary>
         /// 後端系統內部觸發，例如手動發送、管理員操作等。
         /// </summary>
-        Backend,
+        [Description("後端系統內部觸發")]
+        Backend = 1,
 
         /// <summary>
         /// 外部系統或第三方服務觸發，透過 API 或其他整合方式傳遞。
         /// </summary>
-        External,
+        [Description("外部系統或第三方服務觸發")]
+        External = 2,
 
         /// <summary>
         /// 排程任務 (Job) 或背景工作觸發，例如定時推送、批量處理等。
         /// </summary>
-        Job
+        [Description(" 排程任務或背景工作觸發")]
+        Job = 3
     }
 
     /// <summary>

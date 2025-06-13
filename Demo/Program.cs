@@ -2,6 +2,7 @@ using Demo.Data;
 using Demo.Infrastructure.Hangfire;
 using Demo.Infrastructure.Services;
 using Demo.Infrastructure.Services.Notification;
+using Demo.Infrastructure.Workers;
 using Hangfire;
 using Hangfire.PostgreSql;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -56,6 +57,9 @@ builder.Services.AddScoped<EmailNotificationStrategy>();
 builder.Services.AddScoped<LineNotificationStrategy>();
 builder.Services.AddScoped<NotificationService>();
 builder.Services.AddScoped<RetryService>();
+builder.Services.AddScoped<NotificationLogQueueService>();
+builder.Services.AddHostedService<NotificationQueueWorker>();
+builder.Services.AddHostedService<NotificationLogQueueWorker>();
 
 // ------------------------ 新增：認證 (Authentication) 設定 ------------------------
 // Info: 配置 JWT Bearer 認證

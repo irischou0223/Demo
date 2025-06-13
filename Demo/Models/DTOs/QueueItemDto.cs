@@ -15,11 +15,6 @@ namespace Demo.Models.DTOs
         public NotificationRequestDto Request { get; set; }
 
         /// <summary>
-        /// 推播來源類型（Backend/External/Job...）
-        /// </summary>
-        public NotificationSourceType Source { get; set; }
-
-        /// <summary>
         /// 進入佇列的 UTC 時間
         /// </summary>
         public DateTime EnqueueTime { get; set; }

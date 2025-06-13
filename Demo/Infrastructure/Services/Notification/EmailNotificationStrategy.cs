@@ -28,23 +28,22 @@ namespace Demo.Infrastructure.Services.Notification
         /// </summary>
         public async Task SendAsync(List<DeviceInfo> devices, string title, string body, Dictionary<string, string> data, NotificationMsgTemplate template)
         {
-            _logger.LogInformation("EmailNotificationStrategy.SendAsync 開始, ProductInfoId={ProductInfoId}, DeviceCount={DeviceCount}",
-             devices.FirstOrDefault()?.ProductInfoId, devices.Count);
+            _logger.LogInformation("Email notification send started. ProductInfoId={ProductInfoId}, DeviceCount={DeviceCount}",
+                devices.FirstOrDefault()?.ProductInfoId, devices.Count);
 
             if (devices == null || devices.Count == 0)
             {
-                _logger.LogWarning("EmailNotificationStrategy.SendAsync 結束，裝置數量為0");
+                _logger.LogWarning("Email notification send aborted: no devices.");
                 return;
             }
 
             // 1. 查產品對應 SMTP 設定
             var productInfoId = devices.First().ProductInfoId;
-            var config = await _configCache.GetNotificationConfigAsync(productInfoId);
+            var config = await _configCache.GetNotificationActionConfigAsync(productInfoId);
 
             if (config == null)
             {
-                _logger.LogError("EmailNotificationStrategy: 無 SMTP 設定, ProductInfoId={ProductInfoId}", productInfoId);
-                _logger.LogWarning("EmailNotificationStrategy.SendAsync 結束，查無 SMTP 設定");
+                _logger.LogError("Email notification failed: SMTP config not found. ProductInfoId={ProductInfoId}", productInfoId);
                 return;
             }
 
@@ -52,8 +51,7 @@ namespace Demo.Infrastructure.Services.Notification
             var emails = devices.Select(d => d.Email).Where(e => !string.IsNullOrWhiteSpace(e)).Distinct().ToList();
             if (!emails.Any())
             {
-                _logger.LogWarning("EmailNotificationStrategy: 無有效 Email, ProductInfoId={ProductInfoId}", productInfoId);
-                _logger.LogWarning("EmailNotificationStrategy.SendAsync 結束，無有效 Email");
+                _logger.LogWarning("Email notification send aborted: no valid email. ProductInfoId={ProductInfoId}", productInfoId);
                 return;
             }
 
@@ -77,21 +75,21 @@ namespace Demo.Infrastructure.Services.Notification
 
                         // 5. 發送
                         await client.SendAsync(message);
-                        _logger.LogInformation("EmailNotificationStrategy: Sent email to {Email}, title: {Title}", email, title);
+                        _logger.LogInformation("Email sent. Email={Email}, Title={Title}", email, title);
                     }
                     catch (System.Exception ex)
                     {
-                        _logger.LogError(ex, "EmailNotificationStrategy: Failed to send email to {Email}", email);
+                        _logger.LogError(ex, "Failed to send email. Email={Email}", email);
                     }
                 }
 
                 await client.DisconnectAsync(true);
             }
-            catch (System.Exception ex)
+            catch (Exception ex)
             {
-                _logger.LogError(ex, "EmailNotificationStrategy: SMTP 連線或認證失敗");
+                _logger.LogError(ex, "SMTP connection or authentication failed.");
             }
-            _logger.LogInformation("EmailNotificationStrategy.SendAsync 結束, ProductInfoId={ProductInfoId}, DeviceCount={DeviceCount}", productInfoId, devices.Count);
+            _logger.LogInformation("Email notification send finished. ProductInfoId={ProductInfoId}, DeviceCount={DeviceCount}", productInfoId, devices.Count);
         }
     }
 }

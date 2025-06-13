@@ -1,6 +1,7 @@
 ﻿using Demo.Data;
 using Demo.Data.Entities;
 using Demo.Models.DTOs;
+using Medo;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -30,9 +31,9 @@ namespace Demo.Controllers
         [HttpGet("list")]
         public async Task<IActionResult> GetAll()
         {
-            _logger.LogInformation("[ ScheduleAPI ] 取得所有排程清單 開始");
+            _logger.LogInformation("[Schedule] Querying all scheduled jobs.");
             var jobs = await _db.NotificationScheduledJobs.ToListAsync();
-            _logger.LogInformation("[ ScheduleAPI ] 取得所有排程清單 結束，共 {Count} 筆", jobs.Count);
+            _logger.LogInformation("[Schedule] Successfully retrieved all scheduled jobs. Count: {Count}", jobs.Count);
             return Ok(jobs);
         }
 
@@ -44,14 +45,14 @@ namespace Demo.Controllers
         [HttpGet("{id}")]
         public async Task<IActionResult> Get(Guid id)
         {
-            _logger.LogInformation("[ ScheduleAPI ] 取得單一排程 開始：{JobId}", id);
+            _logger.LogInformation("[Schedule] Querying scheduled job. JobId: {JobId}", id);
             var job = await _db.NotificationScheduledJobs.FindAsync(id);
             if (job == null)
             {
-                _logger.LogWarning("[ ScheduleAPI ] 查無排程：{JobId}", id);
+                _logger.LogWarning("[Schedule] Scheduled job not found. JobId: {JobId}", id);
                 return NotFound();
             }
-            _logger.LogInformation("[ ScheduleAPI ] 取得單一排程 結束：{JobId}", id);
+            _logger.LogInformation("[Schedule] Successfully retrieved scheduled job. JobId: {JobId}", id);
             return Ok(job);
         }
 
@@ -63,12 +64,12 @@ namespace Demo.Controllers
         [HttpPost("create")]
         public async Task<IActionResult> Create([FromBody] NotificationScheduledJobRequestDto req)
         {
-            _logger.LogInformation("[ ScheduleAPI ] 新增排程 開始，標題：{Title}", req.Title);
+            _logger.LogInformation("[Schedule] Creating new scheduled job. Title: {Title}, NotificationMsgTemplateId: {TemplateId}", req.Title, req.NotificationMsgTemplateId);
             try
             {
                 var entity = new NotificationScheduledJob
                 {
-                    NotificationScheduledJobId = Guid.NewGuid(),
+                    NotificationScheduledJobId = Uuid7.NewUuid7(),
                     NotificationMsgTemplateId = req.NotificationMsgTemplateId,
                     Title = req.Title,
                     NotificationScope = req.NotificationScope,
@@ -87,12 +88,12 @@ namespace Demo.Controllers
                 _db.NotificationScheduledJobs.Add(entity);
                 await _db.SaveChangesAsync();
 
-                _logger.LogInformation("[ ScheduleAPI ] 新增排程 結束，成功建立：{JobId} 標題：{Title}", entity.NotificationScheduledJobId, entity.Title);
+                _logger.LogInformation("[Schedule] Scheduled job created successfully. JobId: {JobId}, Title: {Title}", entity.NotificationScheduledJobId, entity.Title);
                 return Ok(entity);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "[ ScheduleAPI ] 新增排程失敗！");
+                _logger.LogError(ex, "[Schedule] Failed to create scheduled job. Title: {Title}", req.Title);
                 return BadRequest("新增排程失敗：" + ex.Message);
             }
         }
@@ -106,14 +107,14 @@ namespace Demo.Controllers
         [HttpPost("update/{id}")]
         public async Task<IActionResult> Update(Guid id, [FromBody] NotificationScheduledJob req)
         {
-            _logger.LogInformation("[ ScheduleAPI ] 修改排程 開始：{JobId}", id);
+            _logger.LogInformation("[Schedule] Updating scheduled job. JobId: {JobId}", id);
             try
             {
                 var job = await _db.NotificationScheduledJobs.FirstOrDefaultAsync(x => x.NotificationScheduledJobId == id);
                 if (job == null)
                 {
-                    _logger.LogWarning("[ ScheduleAPI ] 查無排程：{JobId}", id);
-                    return NotFound("找不到排程");
+                    _logger.LogWarning("[Schedule] Scheduled job not found for update. JobId: {JobId}", id);
+                    return NotFound(new { message = "Scheduled job not found." });
                 }
 
                 job.NotificationMsgTemplateId = req.NotificationMsgTemplateId;
@@ -130,14 +131,14 @@ namespace Demo.Controllers
                 job.CancelledAtUtc = null;
 
                 await _db.SaveChangesAsync();
-                _logger.LogInformation("[ ScheduleAPI ] 修改排程 結束：{JobId}", id);
+                _logger.LogInformation("[Schedule] Scheduled job updated successfully. JobId: {JobId}", id);
 
                 return Ok(job);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "[ ScheduleAPI ] 修改排程失敗！");
-                return BadRequest("修改排程失敗：" + ex.Message);
+                _logger.LogError(ex, "[Schedule] Failed to update scheduled job. JobId: {JobId}", id);
+                return BadRequest(new { message = "Failed to update scheduled job: " + ex.Message });
             }
         }
 
@@ -149,26 +150,26 @@ namespace Demo.Controllers
         [HttpDelete("delete/{id}")]
         public async Task<IActionResult> Delete(Guid id)
         {
-            _logger.LogInformation("[ ScheduleAPI ] 刪除排程 開始：{JobId}", id);
+            _logger.LogInformation("[Schedule] Deleting scheduled job. JobId: {JobId}", id);
             try
             {
                 var job = await _db.NotificationScheduledJobs.FirstOrDefaultAsync(x => x.NotificationScheduledJobId == id);
                 if (job == null)
                 {
-                    _logger.LogWarning("[ ScheduleAPI ] 查無排程：{JobId}", id);
-                    return NotFound("找不到排程");
+                    _logger.LogWarning("[Schedule] Scheduled job not found for delete. JobId: {JobId}", id);
+                    return NotFound(new { message = "Scheduled job not found." });
                 }
 
                 _db.NotificationScheduledJobs.Remove(job);
                 await _db.SaveChangesAsync();
-                _logger.LogInformation("[ ScheduleAPI ] 刪除排程 結束：{JobId}", id);
+                _logger.LogInformation("[Schedule] Scheduled job deleted successfully. JobId: {JobId}", id);
 
-                return Ok("刪除成功");
+                return Ok(new { message = "Deleted successfully." });
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "[ ScheduleAPI ] 刪除排程失敗！");
-                return BadRequest("刪除排程失敗：" + ex.Message);
+                _logger.LogError(ex, "[Schedule] Failed to delete scheduled job. JobId: {JobId}", id);
+                return BadRequest(new { message = "Failed to delete scheduled job: " + ex.Message });
             }
         }
 
@@ -178,14 +179,14 @@ namespace Demo.Controllers
         [HttpPost("cancel/{id}")]
         public async Task<IActionResult> Cancel(Guid id)
         {
-            _logger.LogInformation("[ ScheduleAPI ] 取消排程 開始：{JobId}", id);
+            _logger.LogInformation("[Schedule] Cancelling scheduled job. JobId: {JobId}", id);
             try
             {
                 var job = await _db.NotificationScheduledJobs.FirstOrDefaultAsync(x => x.NotificationScheduledJobId == id);
                 if (job == null)
                 {
-                    _logger.LogWarning("[ ScheduleAPI ] 查無排程：{JobId}", id);
-                    return NotFound("找不到排程");
+                    _logger.LogWarning("[Schedule] Scheduled job not found for cancel. JobId: {JobId}", id);
+                    return NotFound(new { message = "Scheduled job not found." });
                 }
 
                 job.IsEnabled = false;
@@ -193,14 +194,14 @@ namespace Demo.Controllers
                 job.UpdateAtUtc = DateTime.UtcNow;
 
                 await _db.SaveChangesAsync();
-                _logger.LogInformation("[ ScheduleAPI ] 取消排程 結束：{JobId}", id);
+                _logger.LogInformation("[Schedule] Scheduled job cancelled successfully. JobId: {JobId}", id);
 
-                return Ok("取消成功");
+                return Ok(new { message = "Cancelled successfully." });
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "[ ScheduleAPI ] 取消排程失敗！");
-                return BadRequest("取消排程失敗：" + ex.Message);
+                _logger.LogError(ex, "[Schedule] Failed to cancel scheduled job. JobId: {JobId}", id);
+                return BadRequest(new { message = "Failed to cancel scheduled job: " + ex.Message });
             }
         }
     }

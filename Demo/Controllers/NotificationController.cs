@@ -36,13 +36,15 @@ namespace Demo.Controllers
         [HttpPost("notify")]
         public async Task<IActionResult> Notify([FromBody] NotificationRequestDto request)
         {
-            _logger.LogInformation("接收到通知請求。來源類型: {Source}, 裝置數量: {DeviceCount}", request.Source, request.DeviceInfoIds?.Count ?? 0);
+            _logger.LogInformation("[Notification] Notification request received. Source: {Source}, DeviceCount: {DeviceCount}, Lang: {Lang}, NotificationMsgTemplateId: {TemplateId}, NotificationGroup: {NotificationGroup}",
+                request?.Source, request?.DeviceInfoIds?.Count ?? 0, request?.Lang, request?.NotificationMsgTemplateId, request?.NotificationGroup);
+
 
             // 1. 輸入驗證
             if (request == null)
             {
-                _logger.LogWarning("通知請求為空 (null)。");
-                return BadRequest(new { message = "通知請求內容不可為空。" });
+                _logger.LogWarning("[Notification] Notification request body is null.");
+                return BadRequest(new { message = "Notification request body cannot be null." });
             }
 
             var errors = new List<string>();
@@ -55,12 +57,12 @@ namespace Demo.Controllers
                 // 排程通知
                 if (request.NotificationMsgTemplateId == Guid.Empty)
                 {
-                    errors.Add("排程通知必須提供有效的 NotificationMsgTemplateId。");
+                    errors.Add("A valid NotificationMsgTemplateId is required for scheduled notification.");
                 }
                 // 若未同時提供模板ID和自訂內容，則為不完整
                 if (!request.NotificationMsgTemplateId.HasValue && string.IsNullOrWhiteSpace(request.Title) && string.IsNullOrWhiteSpace(request.Body))
                 {
-                    errors.Add("排程通知必須提供 NotificationMsgTemplateId 或自訂 Title/Body。");
+                    errors.Add("Scheduled notification must provide NotificationMsgTemplateId or custom Title/Body.");
                 }
             }
             else
@@ -75,19 +77,19 @@ namespace Demo.Controllers
             // 通用條件：DeviceIds 或 NotificationGroup 必須擇一且不可同時為空
             if ((request.DeviceInfoIds == null || !request.DeviceInfoIds.Any()) && string.IsNullOrWhiteSpace(request.NotificationGroup))
             {
-                errors.Add("必須提供目標裝置 DeviceIds 清單或 NotificationGroup。");
+                errors.Add("Either DeviceInfoIds list or NotificationGroup is required.");
             }
 
             // 語系驗證
             if (string.IsNullOrWhiteSpace(request.Lang))
             {
-                errors.Add("語系 (Lang) 為必填。");
+                errors.Add("Lang is required.");
             }
 
             if (errors.Any())
             {
-                _logger.LogWarning("通知請求缺少必要欄位或不符合業務規則。錯誤: {Errors}", string.Join("; ", errors));
-                return BadRequest(new { message = "請求內容無效。", errors = errors });
+                _logger.LogWarning("[Notification] Request validation failed. Errors: {Errors}. Source: {Source}, DeviceCount: {DeviceCount}", string.Join("; ", errors), request.Source, request.DeviceInfoIds?.Count ?? 0);
+                return BadRequest(new { message = "Invalid request content.", errors });
             }
 
             // 2. 判斷是否進 queue（裝置數量 > 1000 時進行 queue 處理）
@@ -95,25 +97,25 @@ namespace Demo.Controllers
 
             try
             {
-                _logger.LogInformation("[ NotificationAPI ] 開始呼叫 NotificationService。來源: {Source}，useQueue: {UseQueue}", request.Source, useQueue);
+                _logger.LogInformation("[Notification] Calling NotificationService. Source: {Source}, UseQueue: {UseQueue}", request.Source, useQueue);
 
                 // 3. 呼叫 NotificationService 處理推播
-                var result = await _notificationService.NotifyAsync(request, request.Source, useQueue);
+                var result = await _notificationService.NotifyAsync(request, useQueue);
 
                 if (result.IsSuccess)
                 {
-                    _logger.LogInformation("[ NotificationAPI ] 推播成功。訊息: {ResultMessage}", result.Message);
+                    _logger.LogInformation("[Notification] Notification sent successfully. Message: {Message}, Source: {Source}", result.Message, request.Source);
                     return Ok(result);
                 }
                 else
                 {
-                    _logger.LogWarning("[ NotificationAPI ] 推播失敗。錯誤訊息: {ErrorMessage}", result.Message);
+                    _logger.LogWarning("[Notification] Notification send failed. Message: {Message}, Source: {Source}", result.Message, request.Source);
                     return BadRequest(result);
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "[ NotificationAPI ] 處理通知請求發生例外。來源: {Source}, DeviceIds數: {DeviceCount}", request.Source, request.DeviceInfoIds?.Count ?? 0);
+                _logger.LogError(ex, "[Notification] Exception occurred while processing notification. Source: {Source}, DeviceCount: {DeviceCount}", request.Source, request.DeviceInfoIds?.Count ?? 0);
                 return StatusCode(StatusCodes.Status500InternalServerError, "處理通知時發生非預期錯誤，請稍後再試。");
             }
         }

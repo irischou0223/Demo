@@ -47,17 +47,17 @@ namespace Demo.Infrastructure.Services
         /// </summary>
         /// <param name="productInfoId">產品唯一識別</param>
         /// <returns>通知配置實體或 null</returns>
-        public async Task<NotificationActionConfig?> GetNotificationConfigAsync(Guid productInfoId)
+        public async Task<NotificationActionConfig?> GetNotificationActionConfigAsync(Guid productInfoId)
         {
             string key = GetConfigCacheKey(productInfoId);
 
             // 1. MemoryCache（本機快取）
             if (_memoryCache.TryGetValue(key, out NotificationActionConfig config))
             {
-                _logger.LogDebug("[ ConfigCacheService ] MemoryCache 命中，ProductInfoId={ProductInfoId}", productInfoId);
+                _logger.LogDebug("MemoryCache hit. ProductInfoId={ProductInfoId}", productInfoId);
                 return config;
             }
-            _logger.LogDebug("[ ConfigCacheService ] MemoryCache 未命中，ProductInfoId={ProductInfoId}", productInfoId);
+            _logger.LogDebug("MemoryCache miss. ProductInfoId={ProductInfoId}", productInfoId);
 
             // 2. Redis 分散式快取
             var redisValue = await _redisDb.StringGetAsync(key);
@@ -67,15 +67,15 @@ namespace Demo.Infrastructure.Services
                 if (config != null)
                 {
                     _memoryCache.Set(key, config, MemoryExpire);
-                    _logger.LogDebug("[ ConfigCacheService ] Redis 快取命中，ProductInfoId={ProductInfoId}，已補寫 MemoryCache", productInfoId);
+                    _logger.LogDebug("Redis cache hit and restored to MemoryCache. ProductInfoId={ProductInfoId}", productInfoId);
                 }
                 else
                 {
-                    _logger.LogWarning("[ ConfigCacheService ] Redis 命中但反序列化失敗，ProductInfoId={ProductInfoId}", productInfoId);
+                    _logger.LogWarning("Redis cache hit but deserialization failed. ProductInfoId={ProductInfoId}", productInfoId);
                 }
                 return config;
             }
-            _logger.LogDebug("[ ConfigCacheService ] Redis 快取未命中，ProductInfoId={ProductInfoId}", productInfoId);
+            _logger.LogDebug("Redis cache miss. ProductInfoId={ProductInfoId}", productInfoId);
 
             // 3. 資料庫查詢
             config = await _db.NotificationActionConfigs.AsNoTracking().FirstOrDefaultAsync(x => x.ProductInfoId == productInfoId);
@@ -84,11 +84,11 @@ namespace Demo.Infrastructure.Services
                 var json = System.Text.Json.JsonSerializer.Serialize(config);
                 await _redisDb.StringSetAsync(key, json, RedisExpire);
                 _memoryCache.Set(key, config, MemoryExpire);
-                _logger.LogInformation("[ ConfigCacheService ] DB 查詢命中，ProductInfoId={ProductInfoId}，已補寫 Redis/MemoryCache", productInfoId);
+                _logger.LogInformation("Database hit. ProductInfoId={ProductInfoId}. Cache updated.", productInfoId);
             }
             else
             {
-                _logger.LogWarning("[ ConfigCacheService ] DB 查無資料，ProductInfoId={ProductInfoId}", productInfoId);
+                _logger.LogWarning("No data found in database. ProductInfoId={ProductInfoId}", productInfoId);
             }
             return config;
         }
@@ -102,24 +102,24 @@ namespace Demo.Infrastructure.Services
         {
             string key = GetConfigCacheKey(productInfoId);
 
-            // 先查 Memory
+            // 1. 先查 Memory
             if (_memoryCache.TryGetValue(key, out NotificationActionConfig config))
             {
-                _logger.LogDebug("[ ConfigCacheService ] Peek MemoryCache 命中，ProductInfoId={ProductInfoId}", productInfoId);
+                _logger.LogDebug("Peek MemoryCache hit. ProductInfoId={ProductInfoId}", productInfoId);
                 return config;
             }
-            _logger.LogDebug("[ ConfigCacheService ] Peek MemoryCache 未命中，ProductInfoId={ProductInfoId}", productInfoId);
+            _logger.LogDebug("Peek MemoryCache miss. ProductInfoId={ProductInfoId}", productInfoId);
 
-            // 查 Redis
+            // 2. 查 Redis
             var redisValue = await _redisDb.StringGetAsync(key);
             if (redisValue.HasValue)
             {
-                _logger.LogDebug("[ ConfigCacheService ] Peek Redis 快取命中，ProductInfoId={ProductInfoId}", productInfoId);
+                _logger.LogDebug("Peek Redis cache hit. ProductInfoId={ProductInfoId}", productInfoId);
                 return System.Text.Json.JsonSerializer.Deserialize<NotificationActionConfig>(redisValue);
             }
-            _logger.LogDebug("[ ConfigCacheService ] Peek Redis 快取未命中，ProductInfoId={ProductInfoId}", productInfoId);
+            _logger.LogDebug("Peek Redis cache miss. ProductInfoId={ProductInfoId}", productInfoId);
 
-            // 不查 DB
+            // 3. 不查 DB
             return null;
         }
 
@@ -127,18 +127,18 @@ namespace Demo.Infrastructure.Services
         /// 使指定產品的 NotificationConfig 快取失效（Memory/Redis 均移除）
         /// </summary>
         /// <param name="productInfoId">產品唯一識別</param>
-        public async Task InvalidateNotificationConfigCacheAsync(Guid productInfoId)
+        public async Task InvalidateNotificationConfigActionCacheAsync(Guid productInfoId)
         {
             string key = GetConfigCacheKey(productInfoId);
             _memoryCache.Remove(key);
             await _redisDb.KeyDeleteAsync(key);
-            _logger.LogInformation("[ ConfigCacheService ] 已使快取失效，ProductInfoId={ProductInfoId}", productInfoId);
+            _logger.LogInformation("Cache invalidated for ProductInfoId={ProductInfoId}", productInfoId);
         }
 
         /// <summary>
         /// 清除所有 NotificationConfig 快取（僅 Redis，可配合維運操作）
         /// </summary>
-        public async Task InvalidateAllNotificationConfigCacheAsync()
+        public async Task InvalidateAllNotificationActionConfigCacheAsync()
         {
             var endpoints = _redisDb.Multiplexer.GetEndPoints();
             var server = _redisDb.Multiplexer.GetServer(endpoints.First());
@@ -146,23 +146,24 @@ namespace Demo.Infrastructure.Services
             foreach (var key in keys)
             {
                 await _redisDb.KeyDeleteAsync(key);
-                _logger.LogDebug("[ ConfigCacheService ] 已清除 Redis 快取 Key: {Key}", key);
+                _logger.LogDebug("Redis cache key deleted: {Key}", key);
             }
-            _logger.LogWarning("[ ConfigCacheService ] 已清除所有 Redis NotificationConfig 快取");
+            _logger.LogWarning("All Redis NotificationActionConfig caches cleared.");
             // MemoryCache 無法全清，只能等過期或重啟
         }
 
         /// <summary>
-        /// 查詢目前 Redis NotificationConfig 快取數量（監控用）
+        /// 查詢目前 Redis NotificationActionConfig 快取數量（監控用）
         /// </summary>
         /// <returns>Redis 中快取數量</returns>
-        public Task<int> GetNotificationConfigCacheCountAsync()
+        public Task<int> GetNotificationConfigActionCacheCountAsync()
         {
             var endpoints = _redisDb.Multiplexer.GetEndPoints();
             var server = _redisDb.Multiplexer.GetServer(endpoints.First());
             var keys = server.Keys(pattern: "NotificationActionConfig:*");
-            _logger.LogDebug("[ ConfigCacheService ] 目前 Redis NotificationConfig 快取數量: {Count}", keys.Count());
-            return Task.FromResult(keys.Count());
+            var count = keys.Count();
+            _logger.LogDebug("Current Redis NotificationActionConfig cache count: {Count}", count);
+            return Task.FromResult(count);
         }
     }
 }

@@ -1,4 +1,5 @@
 ﻿using Demo.Enum;
+using Hangfire.Common;
 
 namespace Demo.Models.DTOs
 {
@@ -16,6 +17,11 @@ namespace Demo.Models.DTOs
     /// </summary>
     public class NotificationRequestDto
     {
+        /// <summary>
+        /// 推播來源（如 Backend、External、Job）
+        /// </summary>
+        public NotificationSourceType Source { get; set; }
+
         #region 一般通知條件
 
         /// <summary>
@@ -34,14 +40,12 @@ namespace Demo.Models.DTOs
         /// 通知代碼（用於查找標準訊息模板，一般通知必填）
         /// </summary>
         public string Code { get; set; }
-        /// <summary>
-        /// 推播來源（如 Backend、External）
-        /// </summary>
-        public NotificationSourceType Source { get; set; }
 
         #endregion 一般通知條件
 
         #region 排程通知專用
+
+        public Guid? NotificationScheduledJobId { get; set; }
 
         /// <summary>
         /// 通知訊息範本 ID（排程推播用，支援自訂或預設模板）

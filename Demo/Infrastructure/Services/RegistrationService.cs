@@ -1,6 +1,7 @@
 ﻿using Demo.Data;
 using Demo.Data.Entities;
 using Demo.Models.DTOs;
+using Medo;
 using Microsoft.EntityFrameworkCore;
 
 namespace Demo.Infrastructure.Services
@@ -35,15 +36,15 @@ namespace Demo.Infrastructure.Services
         {
             try
             {
-                _logger.LogInformation("[ RegistrationService ] 開始註冊 DeviceId={DeviceId}, Account={UserAccount}", req.DeviceId, req.UserAccount);
+                _logger.LogInformation("Device registration started. DeviceId={DeviceId}, UserAccount={UserAccount}", req.DeviceId, req.UserAccount);
 
                 // 1. 查詢 ProductInfo
                 var product = await _db.ProductInfos.FirstOrDefaultAsync(p => p.FirebaseProjectId == req.FirebaseProjectId);
 
                 if (product == null)
                 {
-                    _logger.LogWarning("[ RegistrationService ] 找不到對應Product: {FirebaseProjectId}", req.FirebaseProjectId);
-                    return (null, "找不到對應的產品資訊。");
+                    _logger.LogWarning("No matching product found. FirebaseProjectId={FirebaseProjectId}", req.FirebaseProjectId);
+                    return (null, "No matching product info found.");
                 }
 
                 // 2. 關閉舊裝置（同DeviceId、ProductInfoId 且為啟用狀態的紀錄）
@@ -51,13 +52,13 @@ namespace Demo.Infrastructure.Services
                     .FirstOrDefaultAsync(d => d.DeviceId == req.DeviceId && d.ProductInfoId == product.ProductInfoId && d.Status);
 
                 Guid? oldDeviceInfoId = oldActiveDeviceInfo?.DeviceInfoId;
-                Guid newDeviceInfoId = Guid.NewGuid();
+                Guid newDeviceInfoId = Uuid7.NewUuid7();
 
                 if (oldActiveDeviceInfo != null)
                 {
                     oldActiveDeviceInfo.Status = false;
                     oldActiveDeviceInfo.UpdateAtUtc = DateTime.UtcNow;
-                    _logger.LogInformation("[ RegistrationService ] 舊裝置已設為不啟用 DeviceId={DeviceId}, ProductInfoId={ProductInfoId}, OldDeviceInfoId={OldDeviceInfoId}", req.DeviceId, product.ProductInfoId, oldDeviceInfoId);
+                    _logger.LogInformation("Old device deactivated. DeviceId={DeviceId}, ProductInfoId={ProductInfoId}, OldDeviceInfoId={OldDeviceInfoId}", req.DeviceId, product.ProductInfoId, oldDeviceInfoId);
                 }
 
                 // 3. 新增新裝置資料
@@ -97,11 +98,11 @@ namespace Demo.Infrastructure.Services
                         DeviceId = req.DeviceId
                     };
                     _db.UserInfos.Add(userInfo);
-                    _logger.LogInformation("[ RegistrationService ] 已新增 UserInfo: UserAccount={UserAccount}, DeviceInfoId={DeviceInfoId}, ProductInfoId={ProductInfoId}", req.UserAccount, newDeviceInfoId, product.ProductInfoId);
+                    _logger.LogInformation("UserInfo created. UserAccount={UserAccount}, DeviceInfoId={DeviceInfoId}, ProductInfoId={ProductInfoId}", req.UserAccount, newDeviceInfoId, product.ProductInfoId);
                 }
                 else
                 {
-                    _logger.LogInformation("[ RegistrationService ] UserInfo 已存在，不重複新增: UserAccount={UserAccount}, DeviceInfoId={DeviceInfoId}, ProductInfoId={ProductInfoId}", req.UserAccount, newDeviceInfoId, product.ProductInfoId);
+                    _logger.LogInformation("UserInfo already exists. UserAccount={UserAccount}, DeviceInfoId={DeviceInfoId}, ProductInfoId={ProductInfoId}", req.UserAccount, newDeviceInfoId, product.ProductInfoId);
                 }
 
                 // 5. 同步通知啟用設定
@@ -116,7 +117,7 @@ namespace Demo.Infrastructure.Services
                     // 新裝置建立新通知設定
                     notificationType = new NotificationType
                     {
-                        NotificationTypeId = Guid.NewGuid(),
+                        NotificationTypeId = Uuid7.NewUuid7(),
                         DeviceInfoId = newDeviceInfoId,
                         IsAppActive = req.IsAppActive,
                         IsWebActive = req.IsWebActive,
@@ -124,7 +125,7 @@ namespace Demo.Infrastructure.Services
                         IsLineActive = req.IsLineActive
                     };
                     _db.NotificationTypes.Add(notificationType);
-                    _logger.LogInformation("[ RegistrationService ] 為新裝置建立新的通知設定。");
+                    _logger.LogInformation("Created new notification type for device. DeviceInfoId={DeviceInfoId}", newDeviceInfoId);
                 }
                 else
                 {
@@ -134,18 +135,18 @@ namespace Demo.Infrastructure.Services
                     notificationType.IsWebActive = req.IsWebActive;
                     notificationType.IsEmailActive = req.IsEmailActive;
                     notificationType.IsLineActive = req.IsLineActive;
-                    _logger.LogInformation("[ RegistrationService ] 更新舊裝置的通知設定並將其關聯到新裝置（從 {OldDeviceInfoId} 變更為新的 DeviceInfoId）", oldDeviceInfoId);
+                    _logger.LogInformation("Updated notification type and reassigned to new device. OldDeviceInfoId={OldDeviceInfoId}, NewDeviceInfoId={NewDeviceInfoId}", oldDeviceInfoId, newDeviceInfoId);
                 }
 
                 await _db.SaveChangesAsync();
-                _logger.LogInformation("[ RegistrationService ] 裝置註冊流程完成。 新裝置 ID={NewDeviceInfoId}", newDeviceInfo.DeviceInfoId);
+                _logger.LogInformation("Device registration completed. NewDeviceInfoId={NewDeviceInfoId}", newDeviceInfo.DeviceInfoId);
 
                 return (newDeviceInfo, null);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "[ RegistrationService ] 裝置註冊失敗 DeviceId={DeviceId}, Account={UserAccount}", req.DeviceId, req.UserAccount);
-                return (null, "裝置註冊時發生非預期錯誤，請稍後再試。");
+                _logger.LogError(ex, "Device registration failed. DeviceId={DeviceId}, UserAccount={UserAccount}", req.DeviceId, req.UserAccount);
+                return (null, "Unexpected error occurred during device registration. Please try again later.");
             }
         }
     }

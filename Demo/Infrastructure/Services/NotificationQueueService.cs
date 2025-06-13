@@ -1,5 +1,6 @@
 ﻿using Demo.Enum;
 using Demo.Models.DTOs;
+using Serilog;
 using StackExchange.Redis;
 using System.Text.Json;
 
@@ -30,21 +31,27 @@ namespace Demo.Infrastructure.Services
         /// 將推播請求加入 Queue
         /// </summary>
         /// <param name="request">推播請求 DTO</param>
-        /// <param name="source">推播來源類型</param>
-        public async Task EnqueueAsync(NotificationRequestDto request, NotificationSourceType source)
+        public async Task EnqueueAsync(NotificationRequestDto request)
         {
-            _logger.LogInformation("[ NotificationQueueService ] EnqueueAsync 開始，來源: {Source}", source);
+            _logger.LogInformation("Enqueue notification request. Source={Source}", request.Source);
 
             var item = new QueueItemDto
             {
                 Request = request,
-                Source = source,
                 EnqueueTime = DateTime.UtcNow
             };
             var json = JsonSerializer.Serialize(item);
+
+            // 記錄 request 的關鍵資訊
+            _logger.LogInformation(
+                "Notification enqueued. Source={Source}, DeviceInfoIds={DeviceInfoIds}, Title={Title}, EnqueueTime={EnqueueTime}, QueueKey={QueueKey}",
+                request.Source, request.DeviceInfoIds, request.Title, item.EnqueueTime, QueueKey);
+
             await _redisDb.ListRightPushAsync(QueueKey, json);
 
-            _logger.LogInformation("[ NotificationQueueService ] EnqueueAsync 結束，已加入 Queue, 來源: {Source}", source);
+            // 監控 queue 長度
+            var length = await _redisDb.ListLengthAsync(QueueKey);
+            _logger.LogInformation("Enqueue complete. Current queue length={Length}", length);
         }
 
         /// <summary>
@@ -52,18 +59,34 @@ namespace Demo.Infrastructure.Services
         /// </summary>
         public async Task<QueueItemDto> DequeueAsync()
         {
-            _logger.LogInformation("[ NotificationQueueService ] DequeueAsync 開始");
+            _logger.LogInformation("Dequeue notification request started.");
 
             var value = await _redisDb.ListLeftPopAsync(QueueKey);
             if (value.IsNullOrEmpty)
             {
-                _logger.LogInformation("[ NotificationQueueService ] DequeueAsync 結束，Queue 為空");
+                _logger.LogInformation("Dequeue complete. Queue is empty.");
                 return null;
             }
 
-            var item = JsonSerializer.Deserialize<QueueItemDto>(value);
-            _logger.LogInformation("[ NotificationQueueService ] DequeueAsync 結束，已取出一筆任務，EnqueueTime={EnqueueTime}", item.EnqueueTime);
-            return item;
+            try
+            {
+                var item = JsonSerializer.Deserialize<QueueItemDto>(value);
+                if (item == null)
+                {
+                    _logger.LogWarning("Deserialization failed for dequeued item. Value={Value}", value);
+                    return null;
+                }
+                var delaySeconds = (DateTime.UtcNow - item.EnqueueTime).TotalSeconds;
+                _logger.LogInformation(
+                    "Notification dequeued. Source={Source}, DeviceInfoIds={DeviceInfoIds}, Title={Title}, EnqueueTime={EnqueueTime}, DequeueTime={DequeueTime}, DelaySeconds={DelaySeconds}, QueueKey={QueueKey}",
+                    item.Request?.Source, item.Request?.DeviceInfoIds, item.Request?.Title, item.EnqueueTime, DateTime.UtcNow, delaySeconds, QueueKey);
+                return item;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Deserialization failed. Dropping value: {Value}", value);
+                return null;
+            }
         }
 
         /// <summary>
@@ -72,7 +95,7 @@ namespace Demo.Infrastructure.Services
         public async Task<long> GetQueueLengthAsync()
         {
             var length = await _redisDb.ListLengthAsync(QueueKey);
-            _logger.LogInformation("[ NotificationQueueService ] GetQueueLengthAsync，Queue 長度: {Length}", length);
+            _logger.LogInformation("GetQueueLength executed. Current queue length={Length}", length);
             return length;
         }
     }

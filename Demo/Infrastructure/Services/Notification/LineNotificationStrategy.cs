@@ -29,21 +29,20 @@ namespace Demo.Infrastructure.Services.Notification
         /// </summary>
         public async Task SendAsync(List<DeviceInfo> devices, string title, string body, Dictionary<string, string> data, NotificationMsgTemplate template)
         {
-            _logger.LogInformation("LineNotificationStrategy.SendAsync 開始, ProductInfoId={ProductInfoId}, DeviceCount={DeviceCount}", devices.FirstOrDefault()?.ProductInfoId, devices.Count);
+            _logger.LogInformation("LINE notification send started. ProductInfoId={ProductInfoId}, DeviceCount={DeviceCount}", devices.FirstOrDefault()?.ProductInfoId, devices.Count);
 
             if (devices == null || devices.Count == 0)
             {
-                _logger.LogWarning("LineNotificationStrategy.SendAsync 結束，裝置數量為0");
+                _logger.LogWarning("LINE notification send aborted: no devices.");
                 return;
             }
 
             // 1. 查產品對應 LINE 設定
             var productInfoId = devices.First().ProductInfoId;
-            var config = await _configCache.GetNotificationConfigAsync(productInfoId);
+            var config = await _configCache.GetNotificationActionConfigAsync(productInfoId);
             if (config == null || string.IsNullOrWhiteSpace(config.LineChannelAccessToken))
             {
-                _logger.LogError("LineNotificationStrategy: 無 LINE 設定/token, ProductInfoId={ProductInfoId}", productInfoId);
-                _logger.LogWarning("LineNotificationStrategy.SendAsync 結束，查無 LINE 設定");
+                _logger.LogError("LINE notification failed: Config or channel access token not found. ProductInfoId={ProductInfoId}", productInfoId);
                 return;
             }
 
@@ -51,8 +50,7 @@ namespace Demo.Infrastructure.Services.Notification
             var lineUserIds = devices.Select(d => d.LineId).Where(id => !string.IsNullOrWhiteSpace(id)).Distinct().ToList();
             if (!lineUserIds.Any())
             {
-                _logger.LogWarning("LineNotificationStrategy: 無有效 LineUserIds, ProductInfoId={ProductInfoId}", productInfoId);
-                _logger.LogWarning("LineNotificationStrategy.SendAsync 結束，無有效 LineId");
+                _logger.LogWarning("LINE notification send aborted: no valid LineUserIds. ProductInfoId={ProductInfoId}", productInfoId);
                 return;
             }
 
@@ -79,20 +77,20 @@ namespace Demo.Infrastructure.Services.Notification
 
                     if (response.IsSuccessStatusCode)
                     {
-                        _logger.LogInformation("LineNotificationStrategy: Sent LINE message to {UserId}, title: {Title}", userId, title);
+                        _logger.LogInformation("LINE message sent. UserId={UserId}, Title={Title}", userId, title);
                     }
                     else
                     {
                         var respText = await response.Content.ReadAsStringAsync();
-                        _logger.LogWarning("LineNotificationStrategy: Failed to send to {UserId}, status: {Status}, resp: {Resp}", userId, response.StatusCode, respText);
+                        _logger.LogWarning("LINE message failed. UserId={UserId}, Status={Status}, Response={Response}", userId, response.StatusCode, respText);
                     }
                 }
                 catch (System.Exception ex)
                 {
-                    _logger.LogError(ex, "Exception when sending LINE message to {UserId}", userId);
+                    _logger.LogError(ex, "Exception when sending LINE message. UserId={UserId}", userId);
                 }
             }
-            _logger.LogInformation("LineNotificationStrategy.SendAsync 結束, ProductInfoId={ProductInfoId}, DeviceCount={DeviceCount}", productInfoId, devices.Count);
+            _logger.LogInformation("LINE notification send finished. ProductInfoId={ProductInfoId}, DeviceCount={DeviceCount}", productInfoId, devices.Count);
         }
     }
 }

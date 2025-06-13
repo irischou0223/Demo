@@ -36,18 +36,14 @@ namespace Demo.Controllers
         [HttpPost]
         public async Task<IActionResult> Register([FromBody] RegisterRequestDto req)
         {
-            _logger.LogInformation("[ RegistrationAPI ] 收到註冊請求，DeviceId={DeviceId}，FirebaseProjectId={FirebaseProjectId}，AppVersion={AppVersion}，Account={UserAccount}",
-            req?.DeviceId, req?.FirebaseProjectId, req?.AppVersion, req?.UserAccount);
+            _logger.LogInformation("[Registration] Registration request received. DeviceId: {DeviceId}, FirebaseProjectId: {FirebaseProjectId}, AppVersion: {AppVersion}, UserAccount: {UserAccount}",
+                req?.DeviceId, req?.FirebaseProjectId, req?.AppVersion, req?.UserAccount);
 
             var errors = ValidateRegisterRequest(req);
             if (errors.Count > 0)
             {
-                _logger.LogWarning("[ RegistrationAPI ] 註冊請求缺少必要欄位：{Errors}", string.Join("; ", errors));
-                return BadRequest(new
-                {
-                    message = "缺少必要的欄位。",
-                    errors
-                });
+                _logger.LogWarning("[Registration] Registration request validation failed. Errors: {Errors}, DeviceId: {DeviceId}", string.Join("; ", errors), req?.DeviceId);
+                return BadRequest(new { message = "Missing required fields.", errors });
             }
 
             try
@@ -55,18 +51,18 @@ namespace Demo.Controllers
                 var (device, errorMessage) = await _service.RegisterDeviceAsync(req);
                 if (device == null)
                 {
-                    _logger.LogWarning("[ RegistrationAPI ] 註冊失敗，服務層返回錯誤：{ErrorMessage}，DeviceId={DeviceId}", errorMessage, req.DeviceId);
-                    if (errorMessage == "找不到對應的產品資訊。")
+                    _logger.LogWarning("[Registration] Registration failed. Error: {ErrorMessage}, DeviceId: {DeviceId}", errorMessage, req.DeviceId);
+                    if (errorMessage == "No matching product info found.")
                         return NotFound(errorMessage);
                     return BadRequest(errorMessage);
                 }
-                _logger.LogInformation("[ RegistrationAPI ] 註冊成功，DeviceInfoId={DeviceInfoId}，DeviceId={DeviceId}", device.DeviceInfoId, device.DeviceId);
+                _logger.LogInformation("[Registration] Registration succeeded. DeviceInfoId: {DeviceInfoId}, DeviceId: {DeviceId}", device.DeviceInfoId, device.DeviceId);
                 return Ok(device);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "[ RegistrationAPI ] 註冊發生非預期例外！DeviceId={DeviceId}，Account={UserAccount}", req?.DeviceId, req?.UserAccount);
-                return StatusCode(StatusCodes.Status500InternalServerError, "裝置註冊時發生非預期錯誤，請稍後再試。");
+                _logger.LogError(ex, "[Registration] Exception occurred during registration. DeviceId: {DeviceId}, UserAccount: {UserAccount}", req?.DeviceId, req?.UserAccount);
+                return StatusCode(StatusCodes.Status500InternalServerError, new { message = "An unexpected error occurred during registration." });
             }
         }
 
@@ -78,12 +74,12 @@ namespace Demo.Controllers
             var errors = new List<string>();
             if (req == null)
             {
-                errors.Add("請求內容不可為空。");
+                errors.Add("Request body cannot be null.");
                 return errors;
             }
-            if (string.IsNullOrWhiteSpace(req.DeviceId)) errors.Add("DeviceId 為必填。");
-            if (string.IsNullOrWhiteSpace(req.FirebaseProjectId)) errors.Add("FirebaseProjectId 為必填。");
-            if (string.IsNullOrWhiteSpace(req.AppVersion)) errors.Add("AppVersion 為必填。");
+            if (string.IsNullOrWhiteSpace(req.DeviceId)) errors.Add("DeviceId is required.");
+            if (string.IsNullOrWhiteSpace(req.FirebaseProjectId)) errors.Add("FirebaseProjectId is required.");
+            if (string.IsNullOrWhiteSpace(req.AppVersion)) errors.Add("AppVersion is required.");
             // 其他欄位可依需求擴充
             return errors;
         }

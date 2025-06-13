@@ -27,22 +27,21 @@ namespace Demo.Infrastructure.Services.Notification
         /// </summary>
         public async Task SendAsync(List<DeviceInfo> devices, string title, string body, Dictionary<string, string> data, NotificationMsgTemplate template)
         {
-            _logger.LogInformation("WebNotificationStrategy.SendAsync 開始, ProductInfoId={ProductInfoId}, DeviceCount={DeviceCount}",
-            devices.FirstOrDefault()?.ProductInfoId, devices.Count);
+            _logger.LogInformation("Web notification send started. ProductInfoId={ProductInfoId}, DeviceCount={DeviceCount}",
+                devices.FirstOrDefault()?.ProductInfoId, devices.Count);
 
             if (devices == null || devices.Count == 0)
             {
-                _logger.LogWarning("WebNotificationStrategy.SendAsync 結束，裝置數量為0");
+                _logger.LogWarning("Web notification send aborted: no devices.");
                 return;
             }
 
             // 1. 找到產品對應的 FCM 設定
             var productInfoId = devices.First().ProductInfoId;
-            var config = await _configCache.GetNotificationConfigAsync(productInfoId);
+            var config = await _configCache.GetNotificationActionConfigAsync(productInfoId);
             if (config == null)
             {
-                _logger.LogError("WebNotificationStrategy: 查無 FCM 設定, ProductInfoId={ProductInfoId}", productInfoId);
-                _logger.LogWarning("WebNotificationStrategy.SendAsync 結束，查無 FCM 設定");
+                _logger.LogError("Web notification failed: FCM config not found. ProductInfoId={ProductInfoId}", productInfoId);
                 return;
             }
 
@@ -50,8 +49,7 @@ namespace Demo.Infrastructure.Services.Notification
             var tokens = devices.Select(d => d.FcmToken).Where(t => !string.IsNullOrWhiteSpace(t)).Distinct().ToList();
             if (!tokens.Any())
             {
-                _logger.LogWarning("WebNotificationStrategy: 無 FCM token, ProductInfoId={ProductInfoId}", productInfoId);
-                _logger.LogWarning("WebNotificationStrategy.SendAsync 結束，無有效 FCM token");
+                _logger.LogWarning("Web notification send aborted: no valid FCM token. ProductInfoId={ProductInfoId}", productInfoId);
                 return;
             }
 
@@ -82,8 +80,8 @@ namespace Demo.Infrastructure.Services.Notification
             };
 
             var response = await messaging.SendEachForMulticastAsync(msg);
-            _logger.LogInformation("WebNotificationStrategy: Sent {Count} tokens for ProductInfoId={ProductInfoId}, Success={Success}, Failure={Failure}",
-                tokens.Count, productInfoId, response.SuccessCount, response.FailureCount);
+            _logger.LogInformation("Web notifications sent. ProductInfoId={ProductInfoId}, TokenCount={TokenCount}, Success={Success}, Failure={Failure}",
+                productInfoId, tokens.Count, response.SuccessCount, response.FailureCount);
 
             if (response.FailureCount > 0)
             {
@@ -91,12 +89,12 @@ namespace Demo.Infrastructure.Services.Notification
                 {
                     if (!response.Responses[j].IsSuccess)
                     {
-                        _logger.LogWarning("WebNotificationStrategy: Failed token {Token} for ProductInfoId={ProductInfoId}, error: {Error}",
-                            tokens[j], productInfoId, response.Responses[j].Exception?.Message);
+                        _logger.LogWarning("Web notification failed for token. ProductInfoId={ProductInfoId}, Token={Token}, Error={Error}",
+                            productInfoId, tokens[j], response.Responses[j].Exception?.Message);
                     }
                 }
             }
-            _logger.LogInformation("WebNotificationStrategy.SendAsync 結束, ProductInfoId={ProductInfoId}, DeviceCount={DeviceCount}", productInfoId, devices.Count);
+            _logger.LogInformation("Web notification send finished. ProductInfoId={ProductInfoId}, DeviceCount={DeviceCount}", productInfoId, devices.Count);
         }
     }
 }

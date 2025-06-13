@@ -9,12 +9,20 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Remove="Data\Entities\BackendNotificationLog.cs" />
+    <Compile Remove="Data\Entities\ExternalNotificationLog.cs" />
+    <Compile Remove="Data\Entities\JobNotificationLog.cs" />
+    <Compile Remove="Extensions\UuidConfigurationExtensions.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
 	  <PackageReference Include="FirebaseAdmin" Version="3.2.0" />
 	  <PackageReference Include="Google.Apis" Version="1.69.0" />
 	  <PackageReference Include="Hangfire.AspNetCore" Version="1.8.20" />
 	  <PackageReference Include="Hangfire.Core" Version="1.8.20" />
 	  <PackageReference Include="Hangfire.PostgreSql" Version="1.20.12" />
 	  <PackageReference Include="MailKit" Version="4.12.1" />
+	  <PackageReference Include="Medo.Uuid7" Version="3.1.0" />
 	  <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.0.16" />
 	  <PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.5" />
 	  <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="9.0.5" />
@@ -30,6 +38,10 @@
 	  <PackageReference Include="StackExchange.Redis" Version="2.8.37" />
 	  <PackageReference Include="Swashbuckle.AspNetCore" Version="8.1.4" />
 	  <PackageReference Include="xunit" Version="2.9.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Folder Include="Extensions\" />
   </ItemGroup>
 
 </Project>
